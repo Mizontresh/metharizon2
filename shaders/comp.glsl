@@ -36,7 +36,6 @@ float sierpinski(vec3 p){
         if(p.y < p.z) p.yz = p.zy;
         p = SCALE * p - (SCALE - 1.0) * OFFSET;
         m *= SCALE;
-main
     }
     return length(p)/m - 0.1;
 }
@@ -46,7 +45,6 @@ float objectDE(int idx, vec3 p){
     float r = objs.posRad[idx].w;
 
     return sierpinski(lp / r) * r;
-main
 }
 
 float sceneDE(vec3 p){
