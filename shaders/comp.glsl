@@ -23,31 +23,26 @@ vec3 quatRotateInv(vec4 q, vec3 v){
     return quatRotate(vec4(-q.xyz, q.w), v);
 }
 
-// rotate-fold Mandelbulb-ish fractal
-float mandelbulb(vec3 p) {
-    vec3 z = p;
-    float dr = 1.0;
-    float r  = 0.0;
-    const int ITER = 8;
-    for(int i=0;i<ITER;i++){
-        r = length(z);
-        if(r>2.0) break;
-        // convert to polar
-        float theta = acos(z.z/r);
-        float phi   = atan(z.y, z.x);
-        dr =  pow(r,7.0)*8.0*dr + 1.0;
-        float zr = pow(r,8.0);
-        theta = theta*8.0;
-        phi   = phi*8.0;
-        z = zr * vec3(sin(theta)*cos(phi), sin(phi)*sin(theta), cos(theta)) + p;
+// Sierpinski tetrahedron distance estimator
+float sierpinski(vec3 p){
+    const float SCALE = 2.0;
+    const float OFFSET = 1.0;
+    float m = 1.0;
+    for(int i=0;i<6;i++){
+        p = abs(p);
+        if(p.x < p.y) p.xy = p.yx;
+        if(p.x < p.z) p.xz = p.zx;
+        if(p.y < p.z) p.yz = p.zy;
+        p = SCALE * p - (SCALE - 1.0) * OFFSET;
+        m *= SCALE;
     }
-    return 0.5*log(r)*r/dr;
+    return length(p)/m - 0.1;
 }
 
 float objectDE(int idx, vec3 p){
     vec3 lp = quatRotateInv(objs.quat[idx], p - objs.posRad[idx].xyz);
     float r = objs.posRad[idx].w;
-    return mandelbulb(lp / r) * r;
+    return sierpinski(lp / r) * r;
 }
 
 float sceneDE(vec3 p){
