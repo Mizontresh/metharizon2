@@ -9,6 +9,12 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#if defined(_WIN32)
+#  include <windows.h>
+#elif defined(__linux__)
+#  include <unistd.h>
+#  include <limits.h>
+#endif
 #include <optional>
 #include <stdexcept>
 #include <vector>
@@ -114,6 +120,29 @@ static std::vector<char> readFile(const std::string &path) {
     f.seekg(0);
     f.read(buf.data(), sz);
     return buf;
+}
+
+static std::string getExecutableDir() {
+#if defined(_WIN32)
+    char path[MAX_PATH];
+    DWORD len = GetModuleFileNameA(nullptr, path, MAX_PATH);
+    if (len == 0 || len == MAX_PATH)
+        return ".";
+    std::string exePath(path, len);
+    size_t pos = exePath.find_last_of("/\\");
+    return exePath.substr(0, pos);
+#elif defined(__linux__)
+    char path[1024];
+    ssize_t len = readlink("/proc/self/exe", path, sizeof(path)-1);
+    if (len == -1)
+        return ".";
+    path[len] = '\0';
+    std::string exePath(path);
+    size_t pos = exePath.find_last_of('/');
+    return exePath.substr(0, pos);
+#else
+    return ".";
+#endif
 }
 
 // Find a queue family that supports both compute & present
@@ -413,7 +442,8 @@ void createDescriptorSet() {
 }
 
 void createComputePipeline() {
-    auto spv = readFile("../shaders/comp.spv");
+    std::string shaderPath = getExecutableDir() + "/../shaders/comp.spv";
+    auto spv = readFile(shaderPath);
     VkShaderModuleCreateInfo smci{};
     smci.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     smci.codeSize = spv.size();
