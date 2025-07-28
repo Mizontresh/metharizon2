@@ -37,7 +37,7 @@ float sierpinski(vec3 p){
         p = SCALE * p - (SCALE - 1.0) * OFFSET;
         m *= SCALE;
     }
-    return length(p)/m - 0.1;
+    return length(p)/m;
 }
 
 float objectDE(int idx, vec3 p){
