@@ -688,6 +688,7 @@ int main() {
         rotateVec(camRot, BASE_UP,      cam.up);
         rotateVec(camRot, BASE_RIGHT,   cam.right);
 
+ 2qdh2o-codex/implement-fractal-collision-physics-system
         FractalObject objA{
             {-2.f,0.f,0.f}, // position
             {0.f,0.f,0.f},  // velocity
@@ -708,6 +709,7 @@ int main() {
             0.4f,
             mandelbulbDE
         };
+ main
 
         double lastX = WIDTH/2.0, lastY = HEIGHT/2.0;
         if(!headless){
