@@ -94,7 +94,7 @@ inline float sierpinskiDE(Vec3 p){
         p.z = SCALE*p.z - (SCALE - 1.0f)*OFFSET;
         m *= SCALE;
     }
-    return length(p)/m - 0.1f;
+    return length(p)/m;
 }
 
 inline float estimateSierpinskiRadius(){
@@ -126,8 +126,8 @@ inline Vec3 findContactPoint(const FractalObject& a, const FractalObject& b){
         Vec3 p = a.position + dir * t;
         Vec3 la = rotateInv(a.orientation, p - a.position);
         Vec3 lb = rotateInv(b.orientation, p - b.position);
-        float da = a.de ? a.de(la) : 0.f;
-        float db = b.de ? b.de(lb) : 0.f;
+        float da = a.de ? a.de(la / a.radius) * a.radius : 0.f;
+        float db = b.de ? b.de(lb / b.radius) * b.radius : 0.f;
         float d = da + db;
         if(d < 0.0005f) break;
         t += d * 0.5f;
@@ -163,8 +163,8 @@ inline void stepPhysics(FractalObject& a, FractalObject& b, float dt, float G=1.
         Vec3 rb = contact - b.position;
         Vec3 localA = rotateInv(a.orientation, ra);
         Vec3 localB = rotateInv(b.orientation, rb);
-        float da = a.de ? a.de(localA) : 0.f;
-        float db = b.de ? b.de(localB) : 0.f;
+        float da = a.de ? a.de(localA / a.radius) * a.radius : 0.f;
+        float db = b.de ? b.de(localB / b.radius) * b.radius : 0.f;
         const float eps = 0.001f;
         if(da < eps && db < eps){
             Vec3 va = a.velocity + cross(a.angularVelocity, ra);
