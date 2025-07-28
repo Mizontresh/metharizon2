@@ -5,13 +5,11 @@ struct Vec3 {
     float x, y, z;
 };
 
-2qdh2o-codex/implement-fractal-collision-physics-system
 struct Quat {
     float w, x, y, z;
 };
 
 
- main
 inline Vec3 operator+(Vec3 a, Vec3 b){ return {a.x+b.x, a.y+b.y, a.z+b.z}; }
 inline Vec3 operator-(Vec3 a, Vec3 b){ return {a.x-b.x, a.y-b.y, a.z-b.z}; }
 inline Vec3 operator*(Vec3 a, float s){ return {a.x*s, a.y*s, a.z*s}; }
@@ -20,7 +18,6 @@ inline Vec3 operator*(float s, Vec3 a){ return {a.x*s, a.y*s, a.z*s}; }
 inline float dot(Vec3 a, Vec3 b){ return a.x*b.x + a.y*b.y + a.z*b.z; }
 inline float length(Vec3 a){ return std::sqrt(dot(a,a)); }
 inline Vec3 normalize(Vec3 a){ float l = length(a); return (l>0)? a/l : Vec3{0,0,0}; }
-2qdh2o-codex/implement-fractal-collision-physics-system
 inline Vec3 cross(Vec3 a, Vec3 b){
     return {a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x};
 }
@@ -70,19 +67,16 @@ inline void rotateVec(const Quat& q, const float in[3], float out[3]){
 }
 
 typedef float (*DEFunc)(Vec3);
-main
 
 struct FractalObject {
     Vec3 position;
     Vec3 velocity;
-2qdh2o-codex/implement-fractal-collision-physics-system
     Vec3 angularVelocity;
     Quat orientation;
     float radius;
     float mass;
     float inertia;
     DEFunc de;
-main
 };
 
 inline float mandelbulbDE(Vec3 p){
@@ -107,7 +101,6 @@ inline float mandelbulbDE(Vec3 p){
     return 0.5f*std::log(r)*r/dr;
 }
 
-2qdh2o-codex/implement-fractal-collision-physics-system
 inline void integrateOrientation(FractalObject& obj, float dt){
     Quat wq{0.f, obj.angularVelocity.x, obj.angularVelocity.y, obj.angularVelocity.z};
     Quat dq = quatMul(wq, obj.orientation);
@@ -120,7 +113,6 @@ inline void integrateOrientation(FractalObject& obj, float dt){
 
 inline void stepPhysics(FractalObject& a, FractalObject& b, float dt, float G=1.0f){
     // gravity
-main
     Vec3 diff = b.position - a.position;
     float distSq = dot(diff,diff) + 1e-6f;
     float dist = std::sqrt(distSq);
@@ -129,7 +121,6 @@ main
     Vec3 force = n * forceMag;
     a.velocity = a.velocity + force / a.mass * dt;
     b.velocity = b.velocity - force / b.mass * dt;
-2qdh2o-codex/implement-fractal-collision-physics-system
 
     // integrate motion
     a.position = a.position + a.velocity * dt;
@@ -173,7 +164,6 @@ main
                 Vec3 corr = n * (pen * 0.5f);
                 a.position = a.position - corr;
                 b.position = b.position + corr;
-main
             }
         }
     }
