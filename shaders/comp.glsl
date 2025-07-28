@@ -23,6 +23,7 @@ vec3 quatRotateInv(vec4 q, vec3 v){
     return quatRotate(vec4(-q.xyz, q.w), v);
 }
 
+
 // Sierpinski tetrahedron distance estimator
 float sierpinski(vec3 p){
     const float SCALE = 2.0;
@@ -35,6 +36,7 @@ float sierpinski(vec3 p){
         if(p.y < p.z) p.yz = p.zy;
         p = SCALE * p - (SCALE - 1.0) * OFFSET;
         m *= SCALE;
+main
     }
     return length(p)/m - 0.1;
 }
@@ -42,7 +44,9 @@ float sierpinski(vec3 p){
 float objectDE(int idx, vec3 p){
     vec3 lp = quatRotateInv(objs.quat[idx], p - objs.posRad[idx].xyz);
     float r = objs.posRad[idx].w;
+
     return sierpinski(lp / r) * r;
+main
 }
 
 float sceneDE(vec3 p){
