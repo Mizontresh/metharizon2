@@ -32,36 +32,6 @@ struct Camera {
     alignas(16) float right[3];
 };
 
-struct Quat {
-    float w, x, y, z;
-};
-
-static Quat quatMul(const Quat& a, const Quat& b) {
-    return {
-        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
-        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
-        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
-        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w
-    };
-}
-
-static Quat quatFromAxisAngle(const float axis[3], float angle) {
-    float half = angle * 0.5f;
-    float s = std::sin(half);
-    return { std::cos(half), axis[0]*s, axis[1]*s, axis[2]*s };
-}
-
-static void quatNormalize(Quat& q) {
-    float len = std::sqrt(q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z);
-    q.w/=len; q.x/=len; q.y/=len; q.z/=len;
-}
-
-static void rotateVec(const Quat& q, const float in[3], float out[3]) {
-    Quat v{0.f, in[0], in[1], in[2]};
-    Quat iq{q.w, -q.x, -q.y, -q.z};
-    Quat r = quatMul(quatMul(q, v), iq);
-    out[0] = r.x; out[1] = r.y; out[2] = r.z;
-}
 
 static const float BASE_FORWARD[3] = {0.f, 0.f, -1.f};
 static const float BASE_UP[3]      = {0.f, 1.f, 0.f};
@@ -74,6 +44,7 @@ static auto now = [](){
 bool fullscreen = false;
 int windowX, windowY;
 int windowW = WIDTH, windowH = HEIGHT;
+bool headless = false;
 
 void keyCallback(GLFWwindow* win, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
@@ -161,8 +132,9 @@ void pickPhysicalDevice() {
         for (uint32_t i = 0; i < qCount; i++) {
             bool hasCompute = qProps[i].queueFlags & VK_QUEUE_COMPUTE_BIT;
             VkBool32 presentCap = VK_FALSE;
-            vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, surface, &presentCap);
-            if (hasCompute && presentCap) {
+            if(!headless)
+                vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, surface, &presentCap);
+            if (hasCompute && (headless || presentCap)) {
                 physDevice    = dev;
                 queueFamily   = i;
                 return;
@@ -173,6 +145,14 @@ void pickPhysicalDevice() {
 }
 
 void createInstance() {
+    const char* displayEnv = getenv("DISPLAY");
+    const char* wlDisplayEnv = getenv("WAYLAND_DISPLAY");
+#ifdef GLFW_PLATFORM_NULL
+    if ((!displayEnv || !*displayEnv) && (!wlDisplayEnv || !*wlDisplayEnv)) {
+        glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL);
+        headless = true;
+    }
+#endif
     if (!glfwInit())
         throw std::runtime_error("GLFW init failed");
     if (!glfwVulkanSupported())
@@ -196,6 +176,11 @@ void createInstance() {
 }
 
 void createWindowAndSurface() {
+    if(headless){
+        window = nullptr;
+        surface = VK_NULL_HANDLE;
+        return;
+    }
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     window = glfwCreateWindow(WIDTH, HEIGHT, "Raymarch", nullptr, nullptr);
     if (!window) throw std::runtime_error("Failed to create GLFW window");
@@ -680,9 +665,13 @@ int main() {
         createWindowAndSurface();
         pickPhysicalDevice();
         createLogicalDeviceAndQueue();
-        int fbw, fbh;
-        glfwGetFramebufferSize(window, &fbw, &fbh);
-        createSwapchain(fbw, fbh);
+        int fbw = WIDTH, fbh = HEIGHT;
+        if(!headless){
+            glfwGetFramebufferSize(window, &fbw, &fbh);
+            createSwapchain(fbw, fbh);
+        } else {
+            swapchainExtent = { (uint32_t)fbw, (uint32_t)fbh };
+        }
         createStorageImage();
         createCameraBuffer();
         createDescriptorSet();
@@ -699,15 +688,37 @@ int main() {
         rotateVec(camRot, BASE_UP,      cam.up);
         rotateVec(camRot, BASE_RIGHT,   cam.right);
 
-        FractalObject objA{{-2.f,0.f,0.f},{0.f,0.f,0.f},1.f,1.f};
-        FractalObject objB{{ 2.f,0.f,0.f},{0.f,0.f,0.f},1.f,1.f};
+ 2qdh2o-codex/implement-fractal-collision-physics-system
+        FractalObject objA{
+            {-2.f,0.f,0.f}, // position
+            {0.f,0.f,0.f},  // velocity
+            {0.f,0.f,0.f},  // angular velocity
+            {1.f,0.f,0.f,0.f}, // orientation
+            1.f,  // radius
+            1.f,  // mass
+            0.4f, // inertia
+            mandelbulbDE
+        };
+        FractalObject objB{
+            {2.f,0.f,0.f},
+            {0.f,0.f,0.f},
+            {0.f,0.f,0.f},
+            {1.f,0.f,0.f,0.f},
+            1.f,
+            1.f,
+            0.4f,
+            mandelbulbDE
+        };
+ main
 
         double lastX = WIDTH/2.0, lastY = HEIGHT/2.0;
-        glfwSetCursorPos(window, lastX, lastY);
-        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        if(!headless){
+            glfwSetCursorPos(window, lastX, lastY);
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        }
 
         auto lastTime = now();
-        while (!glfwWindowShouldClose(window)) {
+        while (!headless && !glfwWindowShouldClose(window)) {
             glfwPollEvents();
             int curW, curH;
             glfwGetFramebufferSize(window, &curW, &curH);
@@ -777,6 +788,10 @@ int main() {
             cam.pos[2] += move[2]*speed*dt;
 
             drawFrame(0, cam);
+        }
+        if(headless){
+            for(int i=0;i<100;i++)
+                stepPhysics(objA, objB, 0.016f);
         }
 
         vkDeviceWaitIdle(device);
