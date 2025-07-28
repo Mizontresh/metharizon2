@@ -82,7 +82,7 @@ uint32_t              queueFamily;
 
 void createHeadlessBuffer();
 void destroyHeadlessBuffer();
-void drawFrameHeadless(uint32_t frame, Camera& cam);
+void drawFrameHeadless(uint32_t frame, Camera& cam, const FractalObject& a, const FractalObject& b);
 
 VkSwapchainKHR        swapchain;
 VkFormat              swapchainFormat;
@@ -98,6 +98,10 @@ VkExtent2D            storageExtent;
 VkBuffer              cameraBuffer;
 VkDeviceMemory        cameraMemory;
 VkDescriptorBufferInfo cameraBufferInfo;
+
+VkBuffer              objectBuffer;
+VkDeviceMemory        objectMemory;
+VkDescriptorBufferInfo objectBufferInfo;
 
 VkDescriptorSetLayout dsLayout;
 VkDescriptorPool      dsPool;
@@ -382,6 +386,37 @@ void createCameraBuffer() {
     cameraBufferInfo.range  = sizeof(Camera);
 }
 
+void createObjectBuffer() {
+    VkBufferCreateInfo bci{};
+    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bci.size  = sizeof(float) * 16; // two vec4 posRad + two vec4 quat
+    bci.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    VK_CHECK(vkCreateBuffer(device, &bci, nullptr, &objectBuffer));
+
+    VkMemoryRequirements mr;
+    vkGetBufferMemoryRequirements(device, objectBuffer, &mr);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(physDevice, &mp);
+
+    VkMemoryAllocateInfo mai{};
+    mai.sType          = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mai.allocationSize = mr.size;
+    for (uint32_t i = 0; i < mp.memoryTypeCount; i++) {
+        if ((mr.memoryTypeBits & (1<<i)) &&
+            (mp.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+           == VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+            mai.memoryTypeIndex = i;
+            break;
+        }
+    }
+    VK_CHECK(vkAllocateMemory(device, &mai, nullptr, &objectMemory));
+    VK_CHECK(vkBindBufferMemory(device, objectBuffer, objectMemory, 0));
+
+    objectBufferInfo.buffer = objectBuffer;
+    objectBufferInfo.offset = 0;
+    objectBufferInfo.range  = sizeof(float) * 16;
+}
+
 void createDescriptorSet() {
     // storage image binding
     VkDescriptorSetLayoutBinding b0{};  
@@ -397,7 +432,14 @@ void createDescriptorSet() {
     b1.descriptorCount = 1;
     b1.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    std::array<VkDescriptorSetLayoutBinding,2> binds = { b0, b1 };
+    // object UBO binding
+    VkDescriptorSetLayoutBinding b2{};
+    b2.binding         = 2;
+    b2.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    b2.descriptorCount = 1;
+    b2.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    std::array<VkDescriptorSetLayoutBinding,3> binds = { b0, b1, b2 };
     VkDescriptorSetLayoutCreateInfo dsli{};
     dsli.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     dsli.bindingCount = (uint32_t)binds.size();
@@ -407,7 +449,8 @@ void createDescriptorSet() {
     // pool sizes
     VkDescriptorPoolSize ps0{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  1 };
     VkDescriptorPoolSize ps1{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 };
-    std::array<VkDescriptorPoolSize,2> pss = { ps0, ps1 };
+    VkDescriptorPoolSize ps2{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 };
+    std::array<VkDescriptorPoolSize,3> pss = { ps0, ps1, ps2 };
     VkDescriptorPoolCreateInfo dpci{};
     dpci.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     dpci.maxSets       = 1;
@@ -441,7 +484,15 @@ void createDescriptorSet() {
     w1.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     w1.pBufferInfo     = &cameraBufferInfo;
 
-    std::array<VkWriteDescriptorSet,2> writes = { w0, w1 };
+    VkWriteDescriptorSet w2{};
+    w2.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w2.dstSet          = ds;
+    w2.dstBinding      = 2;
+    w2.descriptorCount = 1;
+    w2.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    w2.pBufferInfo     = &objectBufferInfo;
+
+    std::array<VkWriteDescriptorSet,3> writes = { w0, w1, w2 };
     vkUpdateDescriptorSets(device,
                            (uint32_t)writes.size(), writes.data(),
                             0, nullptr);
@@ -577,13 +628,25 @@ static void savePPM(const char* path, uint32_t w, uint32_t h, const void* data){
     }
 }
 
-void drawFrameHeadless(uint32_t frame, Camera& cam){
+void drawFrameHeadless(uint32_t frame, Camera& cam, const FractalObject& a, const FractalObject& b){
     if(!headless) return;
     // update camera UBO
     void* ptr;
     vkMapMemory(device, cameraMemory, 0, sizeof(cam), 0, &ptr);
     std::memcpy(ptr, &cam, sizeof(cam));
     vkUnmapMemory(device, cameraMemory);
+
+    struct {
+        float posRad[2][4];
+        float quat[2][4];
+    } odata;
+    odata.posRad[0][0] = a.position.x; odata.posRad[0][1] = a.position.y; odata.posRad[0][2] = a.position.z; odata.posRad[0][3] = a.radius;
+    odata.posRad[1][0] = b.position.x; odata.posRad[1][1] = b.position.y; odata.posRad[1][2] = b.position.z; odata.posRad[1][3] = b.radius;
+    odata.quat[0][0] = a.orientation.x; odata.quat[0][1] = a.orientation.y; odata.quat[0][2] = a.orientation.z; odata.quat[0][3] = a.orientation.w;
+    odata.quat[1][0] = b.orientation.x; odata.quat[1][1] = b.orientation.y; odata.quat[1][2] = b.orientation.z; odata.quat[1][3] = b.orientation.w;
+    vkMapMemory(device, objectMemory, 0, sizeof(odata), 0, &ptr);
+    std::memcpy(ptr, &odata, sizeof(odata));
+    vkUnmapMemory(device, objectMemory);
 
     VkCommandBuffer cb = cmdBuffers[0];
     vkResetCommandBuffer(cb, 0);
@@ -646,7 +709,7 @@ void drawFrameHeadless(uint32_t frame, Camera& cam){
 }
 
 // One‐time record & submit per frame:
-void drawFrame(uint32_t /*unused*/, Camera &cam) {
+void drawFrame(uint32_t /*unused*/, Camera &cam, const FractalObject& a, const FractalObject& b) {
     // acquire
     uint32_t imageIndex;
     VK_CHECK(vkAcquireNextImageKHR(device, swapchain,
@@ -659,6 +722,18 @@ void drawFrame(uint32_t /*unused*/, Camera &cam) {
                 sizeof(cam), 0, &ptr);
     std::memcpy(ptr, &cam, sizeof(cam));
     vkUnmapMemory(device, cameraMemory);
+
+    struct {
+        float posRad[2][4];
+        float quat[2][4];
+    } odata;
+    odata.posRad[0][0] = a.position.x; odata.posRad[0][1] = a.position.y; odata.posRad[0][2] = a.position.z; odata.posRad[0][3] = a.radius;
+    odata.posRad[1][0] = b.position.x; odata.posRad[1][1] = b.position.y; odata.posRad[1][2] = b.position.z; odata.posRad[1][3] = b.radius;
+    odata.quat[0][0] = a.orientation.x; odata.quat[0][1] = a.orientation.y; odata.quat[0][2] = a.orientation.z; odata.quat[0][3] = a.orientation.w;
+    odata.quat[1][0] = b.orientation.x; odata.quat[1][1] = b.orientation.y; odata.quat[1][2] = b.orientation.z; odata.quat[1][3] = b.orientation.w;
+    vkMapMemory(device, objectMemory, 0, sizeof(odata), 0, &ptr);
+    std::memcpy(ptr, &odata, sizeof(odata));
+    vkUnmapMemory(device, objectMemory);
 
     // record
     VkCommandBuffer cb = cmdBuffers[imageIndex];
@@ -830,6 +905,7 @@ int main() {
         }
         createStorageImage();
         createCameraBuffer();
+        createObjectBuffer();
         createDescriptorSet();
         createComputePipeline();
         createCommandPoolAndBuffers();
@@ -847,25 +923,26 @@ int main() {
         rotateVec(camRot, BASE_UP,      cam.up);
         rotateVec(camRot, BASE_RIGHT,   cam.right);
 
+        float fracRad = estimateSierpinskiRadius();
         FractalObject objA{
             {-2.f,0.f,0.f}, // position
             {0.f,0.f,0.f},  // velocity
             {0.f,0.f,0.f},  // angular velocity
             {1.f,0.f,0.f,0.f}, // orientation
-            1.f,  // radius
+            fracRad,
             1.f,  // mass
             0.4f, // inertia
-            mandelbulbDE
+            sierpinskiDE
         };
         FractalObject objB{
             {2.f,0.f,0.f},
             {0.f,0.f,0.f},
             {0.f,0.f,0.f},
             {1.f,0.f,0.f,0.f},
-            1.f,
+            fracRad,
             1.f,
             0.4f,
-            mandelbulbDE
+            sierpinskiDE
         };
 
         double lastX = WIDTH/2.0, lastY = HEIGHT/2.0;
@@ -944,7 +1021,7 @@ int main() {
             cam.pos[1] += move[1]*speed*dt;
             cam.pos[2] += move[2]*speed*dt;
 
-            drawFrame(0, cam);
+            drawFrame(0, cam, objA, objB);
         }
         if(headless){
             for(uint32_t i=0;i<60;i++){
@@ -959,7 +1036,7 @@ int main() {
                 cam.forward[0]=fwd.x; cam.forward[1]=fwd.y; cam.forward[2]=fwd.z;
                 cam.right[0]=right.x; cam.right[1]=right.y; cam.right[2]=right.z;
                 cam.up[0]=upv.x; cam.up[1]=upv.y; cam.up[2]=upv.z;
-                drawFrameHeadless(i, cam);
+                drawFrameHeadless(i, cam, objA, objB);
             }
         }
 
