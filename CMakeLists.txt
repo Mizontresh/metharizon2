@@ -14,6 +14,8 @@ FetchContent_Declare(
 set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_X11     ON  CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
 
 # 3) find your Vulkan SDK on the system
