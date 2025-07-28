@@ -24,7 +24,7 @@ set(SHADER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/shaders/comp.glsl)
 set(SHADER_SPV ${CMAKE_CURRENT_SOURCE_DIR}/shaders/comp.spv)
 add_custom_command(
   OUTPUT ${SHADER_SPV}
-  COMMAND ${Vulkan_GLSLC_EXECUTABLE} ${SHADER_SRC} -o ${SHADER_SPV}
+  COMMAND ${Vulkan_GLSLC_EXECUTABLE} -fshader-stage=compute ${SHADER_SRC} -o ${SHADER_SPV}
   DEPENDS ${SHADER_SRC}
   COMMENT "Compiling compute shader"
 )
