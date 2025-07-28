@@ -183,7 +183,7 @@ void pickPhysicalDevice() {
 void createInstance() {
     const char* displayEnv = getenv("DISPLAY");
     const char* wlDisplayEnv = getenv("WAYLAND_DISPLAY");
-#ifdef GLFW_PLATFORM_NULL
+#if defined(__linux__) && defined(GLFW_PLATFORM_NULL)
     if ((!displayEnv || !*displayEnv) && (!wlDisplayEnv || !*wlDisplayEnv)) {
         glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL);
         headless = true;
