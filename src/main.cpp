@@ -52,6 +52,8 @@ bool fullscreen = false;
 int windowX, windowY;
 int windowW = WIDTH, windowH = HEIGHT;
 bool headless = false;
+VkBuffer headlessBuffer = VK_NULL_HANDLE;
+VkDeviceMemory headlessMemory = VK_NULL_HANDLE;
 
 void keyCallback(GLFWwindow* win, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
@@ -77,6 +79,10 @@ VkPhysicalDevice      physDevice = VK_NULL_HANDLE;
 VkDevice              device;
 VkQueue               queue;
 uint32_t              queueFamily;
+
+void createHeadlessBuffer();
+void destroyHeadlessBuffer();
+void drawFrameHeadless(uint32_t frame, Camera& cam);
 
 VkSwapchainKHR        swapchain;
 VkFormat              swapchainFormat;
@@ -475,16 +481,18 @@ void createCommandPoolAndBuffers() {
     cpi.queueFamilyIndex = queueFamily;
     VK_CHECK(vkCreateCommandPool(device, &cpi, nullptr, &cmdPool));
 
-    cmdBuffers.resize(swapImageViews.size());
+    uint32_t count = headless ? 1 : (uint32_t)swapImageViews.size();
+    cmdBuffers.resize(count);
     VkCommandBufferAllocateInfo cbai{};
     cbai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     cbai.commandPool        = cmdPool;
     cbai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cbai.commandBufferCount = (uint32_t)cmdBuffers.size();
+    cbai.commandBufferCount = count;
     VK_CHECK(vkAllocateCommandBuffers(device, &cbai, cmdBuffers.data()));
 }
 
 void createSyncObjects() {
+    if(headless) return;
     VkSemaphoreCreateInfo sci{};
     sci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     VK_CHECK(vkCreateSemaphore(device, &sci, nullptr, &semImageAvailable));
@@ -509,6 +517,8 @@ void cleanupSwapchain() {
         vkDestroyDescriptorPool(device, dsPool, nullptr);
     if (cmdPool)
         vkDestroyCommandPool(device, cmdPool, nullptr);
+    if(headless)
+        destroyHeadlessBuffer();
 }
 
 void recreateSwapchain(uint32_t width, uint32_t height) {
@@ -518,6 +528,121 @@ void recreateSwapchain(uint32_t width, uint32_t height) {
     createStorageImage();
     createDescriptorSet();
     createCommandPoolAndBuffers();
+}
+
+void createHeadlessBuffer() {
+    if(!headless) return;
+    VkBufferCreateInfo bci{};
+    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bci.size  = storageExtent.width * storageExtent.height * 4;
+    bci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VK_CHECK(vkCreateBuffer(device, &bci, nullptr, &headlessBuffer));
+
+    VkMemoryRequirements mr;
+    vkGetBufferMemoryRequirements(device, headlessBuffer, &mr);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(physDevice, &mp);
+    VkMemoryAllocateInfo mai{};
+    mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mai.allocationSize = mr.size;
+    for(uint32_t i=0;i<mp.memoryTypeCount;i++){
+        if((mr.memoryTypeBits & (1u<<i)) &&
+           (mp.memoryTypes[i].propertyFlags & (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
+           (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)){
+            mai.memoryTypeIndex = i;
+            break;
+        }
+    }
+    VK_CHECK(vkAllocateMemory(device, &mai, nullptr, &headlessMemory));
+    VK_CHECK(vkBindBufferMemory(device, headlessBuffer, headlessMemory, 0));
+}
+
+void destroyHeadlessBuffer(){
+    if(headlessBuffer)
+        vkDestroyBuffer(device, headlessBuffer, nullptr);
+    if(headlessMemory)
+        vkFreeMemory(device, headlessMemory, nullptr);
+    headlessBuffer = VK_NULL_HANDLE;
+    headlessMemory = VK_NULL_HANDLE;
+}
+
+static void savePPM(const char* path, uint32_t w, uint32_t h, const void* data){
+    std::ofstream f(path, std::ios::binary);
+    f<<"P6\n"<<w<<" "<<h<<"\n255\n";
+    const uint8_t* px = reinterpret_cast<const uint8_t*>(data);
+    for(uint32_t i=0;i<w*h;i++){
+        f.put(px[i*4+0]);
+        f.put(px[i*4+1]);
+        f.put(px[i*4+2]);
+    }
+}
+
+void drawFrameHeadless(uint32_t frame, Camera& cam){
+    if(!headless) return;
+    // update camera UBO
+    void* ptr;
+    vkMapMemory(device, cameraMemory, 0, sizeof(cam), 0, &ptr);
+    std::memcpy(ptr, &cam, sizeof(cam));
+    vkUnmapMemory(device, cameraMemory);
+
+    VkCommandBuffer cb = cmdBuffers[0];
+    vkResetCommandBuffer(cb, 0);
+    VkCommandBufferBeginInfo bi{};
+    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    VK_CHECK(vkBeginCommandBuffer(cb, &bi));
+
+    // image for compute
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.image = storageImage;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,0,nullptr,0,nullptr,1,&barrier);
+
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0,1,&ds,0,nullptr);
+    vkCmdDispatch(cb, (storageExtent.width+15)/16, (storageExtent.height+15)/16, 1);
+
+    // transition for copy
+    barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,0,nullptr,0,nullptr,1,&barrier);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = {storageExtent.width, storageExtent.height,1};
+    vkCmdCopyImageToBuffer(cb, storageImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, headlessBuffer, 1, &region);
+
+    VkBufferMemoryBarrier bmb{};
+    bmb.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    bmb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    bmb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    bmb.buffer = headlessBuffer;
+    bmb.size = VK_WHOLE_SIZE;
+    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0,0,nullptr,1,&bmb,0,nullptr);
+
+    VK_CHECK(vkEndCommandBuffer(cb));
+
+    VkSubmitInfo si{};
+    si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &cb;
+    VK_CHECK(vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE));
+    vkQueueWaitIdle(queue);
+
+    vkMapMemory(device, headlessMemory, 0, VK_WHOLE_SIZE, 0, &ptr);
+    char name[64];
+    snprintf(name, sizeof(name), "frame_%04u.ppm", frame);
+    savePPM(name, storageExtent.width, storageExtent.height, ptr);
+    vkUnmapMemory(device, headlessMemory);
 }
 
 // One‐time record & submit per frame:
@@ -708,7 +833,10 @@ int main() {
         createDescriptorSet();
         createComputePipeline();
         createCommandPoolAndBuffers();
-        createSyncObjects();
+        if(headless)
+            createHeadlessBuffer();
+        else
+            createSyncObjects();
 
         // initial camera
         Camera cam{};
@@ -819,8 +947,20 @@ int main() {
             drawFrame(0, cam);
         }
         if(headless){
-            for(int i=0;i<100;i++)
+            for(uint32_t i=0;i<60;i++){
                 stepPhysics(objA, objB, 0.016f);
+                float t = i*0.05f;
+                cam.pos[0] = 3.0f*std::cos(t);
+                cam.pos[1] = 0.0f;
+                cam.pos[2] = 3.0f*std::sin(t);
+                Vec3 fwd = normalize(Vec3{-cam.pos[0], -cam.pos[1], -cam.pos[2]});
+                Vec3 right = normalize(cross(fwd, Vec3{0.f,1.f,0.f}));
+                Vec3 upv = cross(right, fwd);
+                cam.forward[0]=fwd.x; cam.forward[1]=fwd.y; cam.forward[2]=fwd.z;
+                cam.right[0]=right.x; cam.right[1]=right.y; cam.right[2]=right.z;
+                cam.up[0]=upv.x; cam.up[1]=upv.y; cam.up[2]=upv.z;
+                drawFrameHeadless(i, cam);
+            }
         }
 
         vkDeviceWaitIdle(device);
