@@ -19,10 +19,22 @@ FetchContent_MakeAvailable(glfw)
 # 3) find your Vulkan SDK on the system
 find_package(Vulkan REQUIRED)
 
+# compile compute shader to SPIR-V
+set(SHADER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/shaders/comp.glsl)
+set(SHADER_SPV ${CMAKE_CURRENT_SOURCE_DIR}/shaders/comp.spv)
+add_custom_command(
+  OUTPUT ${SHADER_SPV}
+  COMMAND ${Vulkan_GLSLC_EXECUTABLE} ${SHADER_SRC} -o ${SHADER_SPV}
+  DEPENDS ${SHADER_SRC}
+  COMMENT "Compiling compute shader"
+)
+add_custom_target(Shaders ALL DEPENDS ${SHADER_SPV})
+
 # 4) our executable
 add_executable(Metharizon
   src/main.cpp
 )
+add_dependencies(Metharizon Shaders)
 
 # 5) tell it where to find Vulkan headers/libs
 target_include_directories(Metharizon PRIVATE ${Vulkan_INCLUDE_DIRS})
