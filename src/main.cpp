@@ -149,10 +149,12 @@ void createInstance() {
     const char* displayEnv = getenv("DISPLAY");
     const char* wlDisplayEnv = getenv("WAYLAND_DISPLAY");
 #ifdef GLFW_PLATFORM_NULL
+#ifndef _WIN32
     if ((!displayEnv || !*displayEnv) && (!wlDisplayEnv || !*wlDisplayEnv)) {
         glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL);
         headless = true;
     }
+#endif
 #endif
     if (!glfwInit())
         throw std::runtime_error("GLFW init failed");
