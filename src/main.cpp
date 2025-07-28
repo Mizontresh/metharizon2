@@ -724,9 +724,10 @@ int main() {
             float yaw   = -dx * sens;
             float pitch = -dy * sens;
 
+            float upAxis[3];
+            rotateVec(camRot, BASE_UP, upAxis);
             if(yaw != 0.f) {
-                float axis[3] = {0.f,1.f,0.f};
-                camRot = quatMul(quatFromAxisAngle(axis, yaw), camRot);
+                camRot = quatMul(quatFromAxisAngle(upAxis, yaw), camRot);
             }
             float rightAxis[3];
             rotateVec(camRot, BASE_RIGHT, rightAxis);
