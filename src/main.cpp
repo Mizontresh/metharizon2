@@ -35,6 +35,27 @@ static auto now = [](){
     return std::chrono::high_resolution_clock::now();
 };
 
+bool fullscreen = false;
+int windowX, windowY;
+int windowW = WIDTH, windowH = HEIGHT;
+
+void keyCallback(GLFWwindow* win, int key, int scancode, int action, int mods) {
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+        glfwSetWindowShouldClose(win, GLFW_TRUE);
+    if (key == GLFW_KEY_F11 && action == GLFW_PRESS) {
+        fullscreen = !fullscreen;
+        if (fullscreen) {
+            glfwGetWindowPos(win, &windowX, &windowY);
+            glfwGetWindowSize(win, &windowW, &windowH);
+            GLFWmonitor* mon = glfwGetPrimaryMonitor();
+            const GLFWvidmode* mode = glfwGetVideoMode(mon);
+            glfwSetWindowMonitor(win, mon, 0, 0, mode->width, mode->height, mode->refreshRate);
+        } else {
+            glfwSetWindowMonitor(win, nullptr, windowX, windowY, windowW, windowH, 0);
+        }
+    }
+}
+
 GLFWwindow*           window;
 VkInstance            instance;
 VkSurfaceKHR          surface;
@@ -142,6 +163,7 @@ void createWindowAndSurface() {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     window = glfwCreateWindow(WIDTH, HEIGHT, "Raymarch", nullptr, nullptr);
     if (!window) throw std::runtime_error("Failed to create GLFW window");
+    glfwSetKeyCallback(window, keyCallback);
     VK_CHECK(glfwCreateWindowSurface(instance, window, nullptr, &surface));
 }
 
@@ -167,7 +189,7 @@ void createLogicalDeviceAndQueue() {
     vkGetDeviceQueue(device, queueFamily, 0, &queue);
 }
 
-void createSwapchain() {
+void createSwapchain(uint32_t width, uint32_t height) {
     // Query surface capabilities
     VkSurfaceCapabilitiesKHR caps;
     VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physDevice, surface, &caps));
@@ -176,7 +198,7 @@ void createSwapchain() {
     if (caps.currentExtent.width != UINT32_MAX) {
         swapchainExtent = caps.currentExtent;
     } else {
-        swapchainExtent = { WIDTH, HEIGHT };
+        swapchainExtent = { width, height };
         swapchainExtent.width  = std::clamp(swapchainExtent.width,  caps.minImageExtent.width,  caps.maxImageExtent.width);
         swapchainExtent.height = std::clamp(swapchainExtent.height, caps.minImageExtent.height, caps.maxImageExtent.height);
     }
@@ -417,6 +439,35 @@ void createSyncObjects() {
     VK_CHECK(vkCreateSemaphore(device, &sci, nullptr, &semRenderFinished));
 }
 
+void cleanupSwapchain() {
+    for (auto view : swapImageViews)
+        vkDestroyImageView(device, view, nullptr);
+    swapImageViews.clear();
+    if (swapchain)
+        vkDestroySwapchainKHR(device, swapchain, nullptr);
+
+    if (storageView)
+        vkDestroyImageView(device, storageView, nullptr);
+    if (storageImage)
+        vkDestroyImage(device, storageImage, nullptr);
+    if (storageMemory)
+        vkFreeMemory(device, storageMemory, nullptr);
+
+    if (dsPool)
+        vkDestroyDescriptorPool(device, dsPool, nullptr);
+    if (cmdPool)
+        vkDestroyCommandPool(device, cmdPool, nullptr);
+}
+
+void recreateSwapchain(uint32_t width, uint32_t height) {
+    vkDeviceWaitIdle(device);
+    cleanupSwapchain();
+    createSwapchain(width, height);
+    createStorageImage();
+    createDescriptorSet();
+    createCommandPoolAndBuffers();
+}
+
 // One‐time record & submit per frame:
 void drawFrame(uint32_t /*unused*/, Camera &cam) {
     // acquire
@@ -593,7 +644,9 @@ int main() {
         createWindowAndSurface();
         pickPhysicalDevice();
         createLogicalDeviceAndQueue();
-        createSwapchain();
+        int fbw, fbh;
+        glfwGetFramebufferSize(window, &fbw, &fbh);
+        createSwapchain(fbw, fbh);
         createStorageImage();
         createCameraBuffer();
         createDescriptorSet();
@@ -615,6 +668,10 @@ int main() {
         auto lastTime = now();
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
+            int curW, curH;
+            glfwGetFramebufferSize(window, &curW, &curH);
+            if (curW != (int)swapchainExtent.width || curH != (int)swapchainExtent.height)
+                recreateSwapchain(curW, curH);
             // delta
             auto t2 = now();
             float dt = std::chrono::duration<float>(t2 - lastTime).count();
