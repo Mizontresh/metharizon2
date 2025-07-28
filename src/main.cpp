@@ -923,25 +923,26 @@ int main() {
         rotateVec(camRot, BASE_UP,      cam.up);
         rotateVec(camRot, BASE_RIGHT,   cam.right);
 
+        float fracRad = estimateSierpinskiRadius();
         FractalObject objA{
             {-2.f,0.f,0.f}, // position
             {0.f,0.f,0.f},  // velocity
             {0.f,0.f,0.f},  // angular velocity
             {1.f,0.f,0.f,0.f}, // orientation
-            1.f,  // radius
+            fracRad,
             1.f,  // mass
             0.4f, // inertia
-            mandelbulbDE
+            sierpinskiDE
         };
         FractalObject objB{
             {2.f,0.f,0.f},
             {0.f,0.f,0.f},
             {0.f,0.f,0.f},
             {1.f,0.f,0.f,0.f},
-            1.f,
+            fracRad,
             1.f,
             0.4f,
-            mandelbulbDE
+            sierpinskiDE
         };
 
         double lastX = WIDTH/2.0, lastY = HEIGHT/2.0;

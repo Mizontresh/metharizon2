@@ -80,26 +80,31 @@ struct FractalObject {
     DEFunc de;
 };
 
-inline float mandelbulbDE(Vec3 p){
-    Vec3 z = p;
-    float dr = 1.0f;
-    float r  = 0.0f;
-    const int ITER = 8;
-    for(int i=0;i<ITER;i++){
-        r = length(z);
-        if(r>2.0f) break;
-        float theta = std::acos(z.z/r);
-        float phi   = std::atan2(z.y, z.x);
-        dr = std::pow(r,7.0f)*8.0f*dr + 1.0f;
-        float zr = std::pow(r,8.0f);
-        theta *= 8.0f;
-        phi   *= 8.0f;
-        Vec3 nz{ std::sin(theta)*std::cos(phi),
-                 std::sin(theta)*std::sin(phi),
-                 std::cos(theta) };
-        z = zr*nz + p;
+inline float sierpinskiDE(Vec3 p){
+    const float SCALE = 2.0f;
+    const float OFFSET = 1.0f;
+    float m = 1.0f;
+    for(int i=0;i<6;i++){
+        p.x = std::fabs(p.x); p.y = std::fabs(p.y); p.z = std::fabs(p.z);
+        if(p.x < p.y) std::swap(p.x, p.y);
+        if(p.x < p.z) std::swap(p.x, p.z);
+        if(p.y < p.z) std::swap(p.y, p.z);
+        p.x = SCALE*p.x - (SCALE - 1.0f)*OFFSET;
+        p.y = SCALE*p.y - (SCALE - 1.0f)*OFFSET;
+        p.z = SCALE*p.z - (SCALE - 1.0f)*OFFSET;
+        m *= SCALE;
     }
-    return 0.5f*std::log(r)*r/dr;
+    return length(p)/m - 0.1f;
+}
+
+inline float estimateSierpinskiRadius(){
+    float lo = 0.0f, hi = 2.0f;
+    for(int i=0;i<32;i++){
+        float mid = (lo + hi) * 0.5f;
+        float d = sierpinskiDE(Vec3{mid,0.f,0.f});
+        if(d>0.f) hi = mid; else lo = mid;
+    }
+    return hi;
 }
 
 inline void integrateOrientation(FractalObject& obj, float dt){
