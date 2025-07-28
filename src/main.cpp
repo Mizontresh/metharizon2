@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <vector>
 #include <cmath>
+#include "physics.h"
 
 const uint32_t WIDTH  = 800;
 const uint32_t HEIGHT = 600;
@@ -698,6 +699,9 @@ int main() {
         rotateVec(camRot, BASE_UP,      cam.up);
         rotateVec(camRot, BASE_RIGHT,   cam.right);
 
+        FractalObject objA{{-2.f,0.f,0.f},{0.f,0.f,0.f},1.f,1.f};
+        FractalObject objB{{ 2.f,0.f,0.f},{0.f,0.f,0.f},1.f,1.f};
+
         double lastX = WIDTH/2.0, lastY = HEIGHT/2.0;
         glfwSetCursorPos(window, lastX, lastY);
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -713,6 +717,8 @@ int main() {
             auto t2 = now();
             float dt = std::chrono::duration<float>(t2 - lastTime).count();
             lastTime = t2;
+
+            stepPhysics(objA, objB, dt);
 
             // mouse look
             double mx,my;
