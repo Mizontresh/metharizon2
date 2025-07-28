@@ -31,6 +31,41 @@ struct Camera {
     alignas(16) float right[3];
 };
 
+struct Quat {
+    float w, x, y, z;
+};
+
+static Quat quatMul(const Quat& a, const Quat& b) {
+    return {
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w
+    };
+}
+
+static Quat quatFromAxisAngle(const float axis[3], float angle) {
+    float half = angle * 0.5f;
+    float s = std::sin(half);
+    return { std::cos(half), axis[0]*s, axis[1]*s, axis[2]*s };
+}
+
+static void quatNormalize(Quat& q) {
+    float len = std::sqrt(q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z);
+    q.w/=len; q.x/=len; q.y/=len; q.z/=len;
+}
+
+static void rotateVec(const Quat& q, const float in[3], float out[3]) {
+    Quat v{0.f, in[0], in[1], in[2]};
+    Quat iq{q.w, -q.x, -q.y, -q.z};
+    Quat r = quatMul(quatMul(q, v), iq);
+    out[0] = r.x; out[1] = r.y; out[2] = r.z;
+}
+
+static const float BASE_FORWARD[3] = {0.f, 0.f, -1.f};
+static const float BASE_UP[3]      = {0.f, 1.f, 0.f};
+static const float BASE_RIGHT[3]   = {1.f, 0.f, 0.f};
+
 static auto now = [](){
     return std::chrono::high_resolution_clock::now();
 };
@@ -657,9 +692,11 @@ int main() {
         // initial camera
         Camera cam{};
         cam.pos[0]=0; cam.pos[1]=0; cam.pos[2]=3;
-        cam.forward[0]=0; cam.forward[1]=0; cam.forward[2]=-1;
-        cam.up[0]=0;    cam.up[1]=1;    cam.up[2]=0;
-        cam.right[0]=1; cam.right[1]=0; cam.right[2]=0;
+
+        Quat camRot{1.f,0.f,0.f,0.f};
+        rotateVec(camRot, BASE_FORWARD, cam.forward);
+        rotateVec(camRot, BASE_UP,      cam.up);
+        rotateVec(camRot, BASE_RIGHT,   cam.right);
 
         double lastX = WIDTH/2.0, lastY = HEIGHT/2.0;
         glfwSetCursorPos(window, lastX, lastY);
@@ -687,38 +724,50 @@ int main() {
             float yaw   = -dx * sens;
             float pitch = -dy * sens;
 
-            auto rotate = [&](float a, float axis[3], float v[3]){
-                float c = std::cos(a), s = std::sin(a);
-                float x=axis[0], y=axis[1], z=axis[2];
-                float m[3][3] = {
-                    {c+(1-c)*x*x,   (1-c)*x*y - s*z, (1-c)*x*z + s*y},
-                    {(1-c)*y*x + s*z, c+(1-c)*y*y,   (1-c)*y*z - s*x},
-                    {(1-c)*z*x - s*y,(1-c)*z*y + s*x, c+(1-c)*z*z}
-                };
-                float r[3];
-                for(int i=0;i<3;i++)
-                    r[i] = m[i][0]*v[0] + m[i][1]*v[1] + m[i][2]*v[2];
-                std::memcpy(v, r, sizeof(r));
+            if(yaw != 0.f) {
+                float axis[3] = {0.f,1.f,0.f};
+                camRot = quatMul(quatFromAxisAngle(axis, yaw), camRot);
+            }
+            float rightAxis[3];
+            rotateVec(camRot, BASE_RIGHT, rightAxis);
+            if(pitch != 0.f) {
+                camRot = quatMul(quatFromAxisAngle(rightAxis, pitch), camRot);
+            }
+
+            float roll = 0.f;
+            if(glfwGetKey(window, GLFW_KEY_Q)==GLFW_PRESS) roll += 1.f;
+            if(glfwGetKey(window, GLFW_KEY_E)==GLFW_PRESS) roll -= 1.f;
+            if(roll != 0.f) {
+                float fwdAxis[3];
+                rotateVec(camRot, BASE_FORWARD, fwdAxis);
+                camRot = quatMul(quatFromAxisAngle(fwdAxis, roll*1.5f*dt), camRot);
+            }
+
+            quatNormalize(camRot);
+            rotateVec(camRot, BASE_FORWARD, cam.forward);
+            rotateVec(camRot, BASE_UP,      cam.up);
+            rotateVec(camRot, BASE_RIGHT,   cam.right);
+
+            float mvF=0.f,mvR=0.f,mvU=0.f;
+            if(glfwGetKey(window, GLFW_KEY_W)==GLFW_PRESS) mvF += 1.f;
+            if(glfwGetKey(window, GLFW_KEY_S)==GLFW_PRESS) mvF -= 1.f;
+            if(glfwGetKey(window, GLFW_KEY_D)==GLFW_PRESS) mvR += 1.f;
+            if(glfwGetKey(window, GLFW_KEY_A)==GLFW_PRESS) mvR -= 1.f;
+            if(glfwGetKey(window, GLFW_KEY_SPACE)==GLFW_PRESS) mvU += 1.f;
+            if(glfwGetKey(window, GLFW_KEY_LEFT_SHIFT)==GLFW_PRESS ||
+               glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT)==GLFW_PRESS) mvU -= 1.f;
+
+            float move[3] = {
+                cam.forward[0]*mvF + cam.right[0]*mvR + cam.up[0]*mvU,
+                cam.forward[1]*mvF + cam.right[1]*mvR + cam.up[1]*mvU,
+                cam.forward[2]*mvF + cam.right[2]*mvR + cam.up[2]*mvU
             };
-
-            // Yaw: rotate forward & right around the world‑up axis
-rotate(yaw,   cam.up,    cam.forward);
-rotate(yaw,   cam.up,    cam.right);
-
-// Pitch: rotate forward & up around the camera‑right axis
-rotate(pitch, cam.right, cam.forward);
-rotate(pitch, cam.right, cam.up); 
-            // recompute right = forward × up
-cam.right[0] = cam.forward[1]*cam.up[2] - cam.forward[2]*cam.up[1];
-cam.right[1] = cam.forward[2]*cam.up[0] - cam.forward[0]*cam.up[2];
-cam.right[2] = cam.forward[0]*cam.up[1] - cam.forward[1]*cam.up[0];
-auto normalize = [](float v[3]){
-    float len = std::sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
-    v[0]/=len; v[1]/=len; v[2]/=len;
-};
-normalize(cam.forward);
-normalize(cam.up);
-normalize(cam.right);
+            float mlen = std::sqrt(move[0]*move[0]+move[1]*move[1]+move[2]*move[2]);
+            if(mlen>0.f){ move[0]/=mlen; move[1]/=mlen; move[2]/=mlen; }
+            const float speed=3.0f;
+            cam.pos[0] += move[0]*speed*dt;
+            cam.pos[1] += move[1]*speed*dt;
+            cam.pos[2] += move[2]*speed*dt;
 
             drawFrame(0, cam);
         }
