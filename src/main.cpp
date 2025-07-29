@@ -86,7 +86,7 @@ uint32_t              queueFamily;
 
 void createHeadlessBuffer();
 void destroyHeadlessBuffer();
-void drawFrameHeadless(uint32_t frame, Camera& cam, const FractalObject& a, const FractalObject& b);
+void drawFrameHeadless(uint32_t frame, Camera& cam, const FractalObject& obj);
 
 VkSwapchainKHR        swapchain;
 VkFormat              swapchainFormat;
@@ -393,7 +393,7 @@ void createCameraBuffer() {
 void createObjectBuffer() {
     VkBufferCreateInfo bci{};
     bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bci.size  = sizeof(float) * 16; // two vec4 posRad + two vec4 quat
+    bci.size  = sizeof(float) * 8; // vec4 posRad + vec4 quat
     bci.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     VK_CHECK(vkCreateBuffer(device, &bci, nullptr, &objectBuffer));
 
@@ -418,7 +418,7 @@ void createObjectBuffer() {
 
     objectBufferInfo.buffer = objectBuffer;
     objectBufferInfo.offset = 0;
-    objectBufferInfo.range  = sizeof(float) * 16;
+    objectBufferInfo.range  = sizeof(float) * 8;
 }
 
 void createDescriptorSet() {
@@ -632,7 +632,7 @@ static void savePPM(const char* path, uint32_t w, uint32_t h, const void* data){
     }
 }
 
-void saveScreenshot(const char* path, Camera& cam, const FractalObject& a, const FractalObject& b){
+void saveScreenshot(const char* path, Camera& cam, const FractalObject& obj){
     // allocate temporary buffer
     VkBuffer buf;
     VkDeviceMemory mem;
@@ -666,11 +666,9 @@ void saveScreenshot(const char* path, Camera& cam, const FractalObject& a, const
     std::memcpy(ptr, &cam, sizeof(cam));
     vkUnmapMemory(device, cameraMemory);
 
-    struct { float posRad[2][4]; float quat[2][4]; } odata;
-    odata.posRad[0][0]=a.position.x; odata.posRad[0][1]=a.position.y; odata.posRad[0][2]=a.position.z; odata.posRad[0][3]=a.radius;
-    odata.posRad[1][0]=b.position.x; odata.posRad[1][1]=b.position.y; odata.posRad[1][2]=b.position.z; odata.posRad[1][3]=b.radius;
-    odata.quat[0][0]=a.orientation.x; odata.quat[0][1]=a.orientation.y; odata.quat[0][2]=a.orientation.z; odata.quat[0][3]=a.orientation.w;
-    odata.quat[1][0]=b.orientation.x; odata.quat[1][1]=b.orientation.y; odata.quat[1][2]=b.orientation.z; odata.quat[1][3]=b.orientation.w;
+    struct { float posRad[4]; float quat[4]; } odata;
+    odata.posRad[0]=obj.position.x; odata.posRad[1]=obj.position.y; odata.posRad[2]=obj.position.z; odata.posRad[3]=obj.radius;
+    odata.quat[0]=obj.orientation.x; odata.quat[1]=obj.orientation.y; odata.quat[2]=obj.orientation.z; odata.quat[3]=obj.orientation.w;
     vkMapMemory(device, objectMemory, 0, sizeof(odata), 0, &ptr);
     std::memcpy(ptr, &odata, sizeof(odata));
     vkUnmapMemory(device, objectMemory);
@@ -742,7 +740,7 @@ void saveScreenshot(const char* path, Camera& cam, const FractalObject& a, const
     vkFreeMemory(device, mem, nullptr);
 }
 
-void drawFrameHeadless(uint32_t frame, Camera& cam, const FractalObject& a, const FractalObject& b){
+void drawFrameHeadless(uint32_t frame, Camera& cam, const FractalObject& obj){
     if(!headless) return;
     // update camera UBO
     void* ptr;
@@ -751,13 +749,11 @@ void drawFrameHeadless(uint32_t frame, Camera& cam, const FractalObject& a, cons
     vkUnmapMemory(device, cameraMemory);
 
     struct {
-        float posRad[2][4];
-        float quat[2][4];
+        float posRad[4];
+        float quat[4];
     } odata;
-    odata.posRad[0][0] = a.position.x; odata.posRad[0][1] = a.position.y; odata.posRad[0][2] = a.position.z; odata.posRad[0][3] = a.radius;
-    odata.posRad[1][0] = b.position.x; odata.posRad[1][1] = b.position.y; odata.posRad[1][2] = b.position.z; odata.posRad[1][3] = b.radius;
-    odata.quat[0][0] = a.orientation.x; odata.quat[0][1] = a.orientation.y; odata.quat[0][2] = a.orientation.z; odata.quat[0][3] = a.orientation.w;
-    odata.quat[1][0] = b.orientation.x; odata.quat[1][1] = b.orientation.y; odata.quat[1][2] = b.orientation.z; odata.quat[1][3] = b.orientation.w;
+    odata.posRad[0] = obj.position.x; odata.posRad[1] = obj.position.y; odata.posRad[2] = obj.position.z; odata.posRad[3] = obj.radius;
+    odata.quat[0] = obj.orientation.x; odata.quat[1] = obj.orientation.y; odata.quat[2] = obj.orientation.z; odata.quat[3] = obj.orientation.w;
     vkMapMemory(device, objectMemory, 0, sizeof(odata), 0, &ptr);
     std::memcpy(ptr, &odata, sizeof(odata));
     vkUnmapMemory(device, objectMemory);
@@ -823,7 +819,7 @@ void drawFrameHeadless(uint32_t frame, Camera& cam, const FractalObject& a, cons
 }
 
 // One‐time record & submit per frame:
-void drawFrame(uint32_t /*unused*/, Camera &cam, const FractalObject& a, const FractalObject& b) {
+void drawFrame(uint32_t /*unused*/, Camera &cam, const FractalObject& obj) {
     // acquire
     uint32_t imageIndex;
     VK_CHECK(vkAcquireNextImageKHR(device, swapchain,
@@ -838,13 +834,11 @@ void drawFrame(uint32_t /*unused*/, Camera &cam, const FractalObject& a, const F
     vkUnmapMemory(device, cameraMemory);
 
     struct {
-        float posRad[2][4];
-        float quat[2][4];
+        float posRad[4];
+        float quat[4];
     } odata;
-    odata.posRad[0][0] = a.position.x; odata.posRad[0][1] = a.position.y; odata.posRad[0][2] = a.position.z; odata.posRad[0][3] = a.radius;
-    odata.posRad[1][0] = b.position.x; odata.posRad[1][1] = b.position.y; odata.posRad[1][2] = b.position.z; odata.posRad[1][3] = b.radius;
-    odata.quat[0][0] = a.orientation.x; odata.quat[0][1] = a.orientation.y; odata.quat[0][2] = a.orientation.z; odata.quat[0][3] = a.orientation.w;
-    odata.quat[1][0] = b.orientation.x; odata.quat[1][1] = b.orientation.y; odata.quat[1][2] = b.orientation.z; odata.quat[1][3] = b.orientation.w;
+    odata.posRad[0] = obj.position.x; odata.posRad[1] = obj.position.y; odata.posRad[2] = obj.position.z; odata.posRad[3] = obj.radius;
+    odata.quat[0] = obj.orientation.x; odata.quat[1] = obj.orientation.y; odata.quat[2] = obj.orientation.z; odata.quat[3] = obj.orientation.w;
     vkMapMemory(device, objectMemory, 0, sizeof(odata), 0, &ptr);
     std::memcpy(ptr, &odata, sizeof(odata));
     vkUnmapMemory(device, objectMemory);
@@ -1038,21 +1032,11 @@ int main() {
         rotateVec(camRot, BASE_RIGHT,   cam.right);
 
         float fracRad = estimateSierpinskiRadius();
-        FractalObject objA{
-            {-2.f,0.f,0.f}, // position
-            {0.f,0.f,0.f},  // velocity
-            {0.f,0.5f,0.f},  // angular velocity
+        FractalObject obj{
+            {0.f,0.f,0.f}, // position
+            {0.f,0.f,0.f}, // velocity
+            {0.f,0.f,0.f}, // angular velocity
             {1.f,0.f,0.f,0.f}, // orientation
-            fracRad * 50.f,
-            1.f,  // mass
-            0.4f, // inertia
-            sierpinskiDE
-        };
-        FractalObject objB{
-            {2.f,0.f,0.f},
-            {0.f,0.f,0.f},
-            {0.f,-0.5f,0.f},
-            {1.f,0.f,0.f,0.f},
             fracRad * 50.f,
             1.f,
             0.4f,
@@ -1077,7 +1061,6 @@ int main() {
             float dt = std::chrono::duration<float>(t2 - lastTime).count();
             lastTime = t2;
 
-            stepPhysics(objA, objB, dt);
 
             // mouse look
             double mx,my;
@@ -1135,17 +1118,16 @@ int main() {
             cam.pos[1] += move[1]*speed*dt;
             cam.pos[2] += move[2]*speed*dt;
 
-            drawFrame(0, cam, objA, objB);
+            drawFrame(0, cam, obj);
             if(screenshotPending){
                 char name[64];
                 snprintf(name, sizeof(name), "screenshot_%04u.ppm", screenshotIndex++);
-                saveScreenshot(name, cam, objA, objB);
+                saveScreenshot(name, cam, obj);
                 screenshotPending = false;
             }
         }
         if(headless){
             for(uint32_t i=0;i<60;i++){
-                stepPhysics(objA, objB, 0.016f);
                 float t = i*0.05f;
                 cam.pos[0] = 3.0f*std::cos(t);
                 cam.pos[1] = 0.0f;
@@ -1156,7 +1138,7 @@ int main() {
                 cam.forward[0]=fwd.x; cam.forward[1]=fwd.y; cam.forward[2]=fwd.z;
                 cam.right[0]=right.x; cam.right[1]=right.y; cam.right[2]=right.z;
                 cam.up[0]=upv.x; cam.up[1]=upv.y; cam.up[2]=upv.z;
-                drawFrameHeadless(i, cam, objA, objB);
+                drawFrameHeadless(i, cam, obj);
             }
         }
 
