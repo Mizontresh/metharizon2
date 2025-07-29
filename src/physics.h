@@ -133,7 +133,7 @@ inline Vec3 findContactPoint(const FractalObject& a, const FractalObject& b){
 }
 
 inline void stepPhysics(FractalObject& a, FractalObject& b, float dt, float G=1.0f){
-    // gravity
+    // apply gravity
     Vec3 diff = b.position - a.position;
     float distSq = dot(diff,diff) + 1e-6f;
     float dist = std::sqrt(distSq);
@@ -143,62 +143,84 @@ inline void stepPhysics(FractalObject& a, FractalObject& b, float dt, float G=1.
     a.velocity = a.velocity + force / a.mass * dt;
     b.velocity = b.velocity - force / b.mass * dt;
 
-    // integrate motion
-    a.position = a.position + a.velocity * dt;
-    b.position = b.position + b.velocity * dt;
-    integrateOrientation(a, dt);
-    integrateOrientation(b, dt);
+    float remaining = dt;
+    while(remaining > 1e-5f){
+        // continuous collision detection via swept spheres
+        Vec3 relPos = b.position - a.position;
+        Vec3 relVel = b.velocity - a.velocity;
+        float rSum = a.radius + b.radius;
+        float A = dot(relVel, relVel);
+        float B = 2.f * dot(relPos, relVel);
+        float C = dot(relPos, relPos) - rSum*rSum;
+        float tHit = remaining + 1.f;
+        if(A > 1e-8f){
+            float disc = B*B - 4.f*A*C;
+            if(disc >= 0.f){
+                float sDisc = std::sqrt(disc);
+                float t1 = (-B - sDisc)/(2.f*A);
+                float t2 = (-B + sDisc)/(2.f*A);
+                if(t1 >= 0.f && t1 <= remaining) tHit = t1;
+                else if(t2 >= 0.f && t2 <= remaining) tHit = t2;
+            }
+        }
 
-    // bounding sphere test
-    diff = b.position - a.position;
-    dist = length(diff);
-    n = (dist>0.f)? diff/dist : Vec3{1,0,0};
+        float step = std::min(remaining, tHit);
+        a.position = a.position + a.velocity * step;
+        b.position = b.position + b.velocity * step;
+        integrateOrientation(a, step);
+        integrateOrientation(b, step);
+        remaining -= step;
 
-    if(dist <= a.radius + b.radius){
-        Vec3 contact = findContactPoint(a,b);
-        Vec3 ra = contact - a.position;
-        Vec3 rb = contact - b.position;
-        Vec3 localA = rotateInv(a.orientation, ra);
-        Vec3 localB = rotateInv(b.orientation, rb);
-        float da = a.de ? a.de(localA / a.radius) * a.radius : 0.f;
-        float db = b.de ? b.de(localB / b.radius) * b.radius : 0.f;
-        const float eps = 0.001f;
-        if(da < eps && db < eps){
-            Vec3 va = a.velocity + cross(a.angularVelocity, ra);
-            Vec3 vb = b.velocity + cross(b.angularVelocity, rb);
-            float rel = dot(vb - va, n);
-            if(rel < 0.0f){
-                float raCn = length(cross(ra, n));
-                float rbCn = length(cross(rb, n));
-                float invMass = 1.0f/a.mass + 1.0f/b.mass +
-                                (raCn*raCn)/a.inertia + (rbCn*rbCn)/b.inertia;
-                float j = -(1.0f + 1.0f) * rel / invMass;
-                Vec3 impulse = n * j;
-                a.velocity = a.velocity + impulse / a.mass;
-                b.velocity = b.velocity - impulse / b.mass;
-                a.angularVelocity = a.angularVelocity + cross(ra, impulse)/a.inertia;
-                b.angularVelocity = b.angularVelocity - cross(rb, impulse)/b.inertia;
+        if(step == tHit){
+            diff = b.position - a.position;
+            dist = length(diff);
+            n = (dist>0.f)? diff/dist : Vec3{1,0,0};
+            if(dist <= rSum + 1e-4f){
+                Vec3 contact = findContactPoint(a,b);
+                Vec3 ra = contact - a.position;
+                Vec3 rb = contact - b.position;
+                Vec3 localA = rotateInv(a.orientation, ra);
+                Vec3 localB = rotateInv(b.orientation, rb);
+                float da = a.de ? a.de(localA / a.radius) * a.radius : 0.f;
+                float db = b.de ? b.de(localB / b.radius) * b.radius : 0.f;
+                const float eps = 0.001f;
+                if(da < eps && db < eps){
+                    Vec3 va = a.velocity + cross(a.angularVelocity, ra);
+                    Vec3 vb = b.velocity + cross(b.angularVelocity, rb);
+                    float rel = dot(vb - va, n);
+                    if(rel < 0.0f){
+                        float raCn = length(cross(ra, n));
+                        float rbCn = length(cross(rb, n));
+                        float invMass = 1.0f/a.mass + 1.0f/b.mass +
+                                        (raCn*raCn)/a.inertia + (rbCn*rbCn)/b.inertia;
+                        float j = -(1.0f + 1.0f) * rel / invMass;
+                        Vec3 impulse = n * j;
+                        a.velocity = a.velocity + impulse / a.mass;
+                        b.velocity = b.velocity - impulse / b.mass;
+                        a.angularVelocity = a.angularVelocity + cross(ra, impulse)/a.inertia;
+                        b.angularVelocity = b.angularVelocity - cross(rb, impulse)/b.inertia;
 
-                Vec3 rv = vb - va;
-                Vec3 tangent = rv - n * dot(rv, n);
-                float tlen = length(tangent);
-                if(tlen > 1e-6f){
-                    tangent = tangent / tlen;
-                    float jt = -dot(rv, tangent) / invMass;
-                    const float mu = 0.5f;
-                    jt = std::clamp(jt, -j*mu, j*mu);
-                    Vec3 fImpulse = tangent * jt;
-                    a.velocity = a.velocity + fImpulse / a.mass;
-                    b.velocity = b.velocity - fImpulse / b.mass;
-                    a.angularVelocity = a.angularVelocity + cross(ra, fImpulse)/a.inertia;
-                    b.angularVelocity = b.angularVelocity - cross(rb, fImpulse)/b.inertia;
+                        Vec3 rv = vb - va;
+                        Vec3 tangent = rv - n * dot(rv, n);
+                        float tlen = length(tangent);
+                        if(tlen > 1e-6f){
+                            tangent = tangent / tlen;
+                            float jt = -dot(rv, tangent) / invMass;
+                            const float mu = 0.5f;
+                            jt = std::clamp(jt, -j*mu, j*mu);
+                            Vec3 fImpulse = tangent * jt;
+                            a.velocity = a.velocity + fImpulse / a.mass;
+                            b.velocity = b.velocity - fImpulse / b.mass;
+                            a.angularVelocity = a.angularVelocity + cross(ra, fImpulse)/a.inertia;
+                            b.angularVelocity = b.angularVelocity - cross(rb, fImpulse)/b.inertia;
+                        }
+
+                        float pen = rSum - dist;
+                        Vec3 corr = n * (pen * 0.5f);
+                        a.position = a.position - corr;
+                        b.position = b.position + corr;
+                    }
                 }
-
-                // positional correction
-                float pen = a.radius + b.radius - dist;
-                Vec3 corr = n * (pen * 0.5f);
-                a.position = a.position - corr;
-                b.position = b.position + corr;
             }
         }
     }
