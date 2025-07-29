@@ -86,14 +86,16 @@ void main(){
 
     vec3 col;
     if(t > MAXT) {
-        col = vec3(0.0);
+        // white background so fractals stand out
+        col = vec3(1.0);
     } else {
         vec3 p = ro + rd*t;
         vec3 n = sceneNormal(p);
-        // simple side lighting
+        // side lighting with pink base color
         vec3 lightDir = normalize(vec3(1.0, 1.0, 0.5));
         float diff = clamp(dot(n, lightDir), 0.0, 1.0);
-        col = mix(vec3(0.1,0.1,0.2), vec3(0.6,0.8,1.0), diff);
+        vec3 base = vec3(1.0, 0.0, 1.0);
+        col = mix(base * 0.2, base, diff);
     }
 
     imageStore(img, uv, vec4(col,1.0));
