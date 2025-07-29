@@ -11,6 +11,7 @@ layout(binding=1) uniform Camera {
 
 layout(binding=2) uniform Objects {
     vec4 obj[2]; // xyz = position, w = radius
+    vec4 probe[2];
 } objs;
 
 bool raySphere(vec3 ro, vec3 rd, vec3 center, float radius, out float tHit) {
@@ -87,6 +88,10 @@ void main(){
     if(raySphere(ro, rd, objs.obj[0].xyz, objs.obj[0].w, tmp) && tmp < tSphere) tSphere = tmp;
     if(raySphere(ro, rd, objs.obj[1].xyz, objs.obj[1].w, tmp) && tmp < tSphere) tSphere = tmp;
 
+    float tProbe = 1e9;
+    if(raySphere(ro, rd, objs.probe[0].xyz, objs.probe[0].w, tmp) && tmp < tProbe) tProbe = tmp;
+    if(raySphere(ro, rd, objs.probe[1].xyz, objs.probe[1].w, tmp) && tmp < tProbe) tProbe = tmp;
+
     // ray march
     float t = 0.0;
     const float MAXT = 50.0;
@@ -115,6 +120,8 @@ void main(){
 
     if(tSphere < min(t, MAXT))
         col = mix(col, vec3(1.0,1.0,0.0), 0.3);
+    if(tProbe < MAXT)
+        col = mix(col, vec3(1.0,0.0,1.0), 0.5);
 
     imageStore(img, uv, vec4(col,1.0));
 }
