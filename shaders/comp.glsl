@@ -11,7 +11,6 @@ layout(binding=1) uniform Camera {
 
 layout(binding=2) uniform Objects {
     vec4 obj[2]; // xyz = position, w = radius
-    vec4 probe[2];
 } objs;
 
 bool raySphere(vec3 ro, vec3 rd, vec3 center, float radius, out float tHit) {
@@ -27,30 +26,33 @@ bool raySphere(vec3 ro, vec3 rd, vec3 center, float radius, out float tHit) {
     return tHit > 0.0;
 }
 
-// rotate-fold Mandelbulb-ish fractal
-float mandelbulb(vec3 p) {
-    vec3 z = p;
+// Quaternion Julia distance estimator (bounded ~radius 4)
+float quatJuliaDE(vec3 p) {
+    vec4 z = vec4(0.0, p);
+    const vec4 c = vec4(-0.2, 0.7, 0.0, 0.0);
     float dr = 1.0;
-    float r  = 0.0;
     const int ITER = 12;
+    const float power = 8.0;
     for(int i=0;i<ITER;i++){
-        r = length(z);
-        if(r>2.0) break;
-        // convert to polar
-        float theta = acos(z.z/r);
-        float phi   = atan(z.y, z.x);
-        dr =  pow(r,7.0)*8.0*dr + 1.0;
-        float zr = pow(r,8.0);
-        theta = theta*8.0;
-        phi   = phi*8.0;
-        z = zr * vec3(sin(theta)*cos(phi), sin(phi)*sin(theta), cos(theta)) + p;
+        float r = length(z);
+        if(r>4.0) break;
+        float theta = acos(z.w/r);
+        float phi   = atan(length(z.yzw), z.x);
+        float psi   = atan(z.y, z.z);
+        dr = pow(r, power-1.0)*power*dr + 1.0;
+        float rp = pow(r, power);
+        theta *= power; phi *= power; psi *= power;
+        z = rp * vec4(cos(theta),
+                      sin(theta)*sin(phi)*cos(psi),
+                      sin(theta)*sin(phi)*sin(psi),
+                      sin(theta)*cos(phi)) + c;
     }
-    return 0.5*log(r)*r/dr;
+    return length(z)/dr;
 }
 
 float sceneDE(vec3 p){
-    float d0 = mandelbulb(p - objs.obj[0].xyz);
-    float d1 = mandelbulb(p - objs.obj[1].xyz);
+    float d0 = quatJuliaDE(p - objs.obj[0].xyz);
+    float d1 = quatJuliaDE(p - objs.obj[1].xyz);
     return min(d0, d1);
 }
 
@@ -88,9 +90,6 @@ void main(){
     if(raySphere(ro, rd, objs.obj[0].xyz, objs.obj[0].w, tmp) && tmp < tSphere) tSphere = tmp;
     if(raySphere(ro, rd, objs.obj[1].xyz, objs.obj[1].w, tmp) && tmp < tSphere) tSphere = tmp;
 
-    float tProbe = 1e9;
-    if(raySphere(ro, rd, objs.probe[0].xyz, objs.probe[0].w, tmp) && tmp < tProbe) tProbe = tmp;
-    if(raySphere(ro, rd, objs.probe[1].xyz, objs.probe[1].w, tmp) && tmp < tProbe) tProbe = tmp;
 
     // ray march
     float t = 0.0;
@@ -112,16 +111,14 @@ void main(){
         // simple side lighting
         vec3 lightDir = normalize(vec3(1.0, 1.0, 0.5));
         float diff = clamp(dot(n, lightDir), 0.0, 1.0);
-        float da = mandelbulb(p - objs.obj[0].xyz);
-        float db = mandelbulb(p - objs.obj[1].xyz);
+        float da = quatJuliaDE(p - objs.obj[0].xyz);
+        float db = quatJuliaDE(p - objs.obj[1].xyz);
         vec3 baseCol = da < db ? vec3(0.6,0.8,1.0) : vec3(1.0,0.6,0.4);
         col = mix(vec3(0.1,0.1,0.2), baseCol, diff);
     }
 
     if(tSphere < min(t, MAXT))
         col = mix(col, vec3(1.0,1.0,0.0), 0.3);
-    if(tProbe < MAXT)
-        col = mix(col, vec3(1.0,0.0,1.0), 0.5);
 
     imageStore(img, uv, vec4(col,1.0));
 }

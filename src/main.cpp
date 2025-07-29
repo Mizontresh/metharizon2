@@ -35,8 +35,6 @@ struct Camera {
 struct GPUObjects {
     alignas(16) float obj0[4];
     alignas(16) float obj1[4];
-    alignas(16) float probe0[4];
-    alignas(16) float probe1[4];
 };
 
 struct Quat {
@@ -585,22 +583,6 @@ void drawFrame(uint32_t /*unused*/, Camera &cam,
     std::memcpy(objs.obj1, &objB.position, sizeof(float)*3);
     objs.obj1[3] = objB.radius;
 
-    Vec3 diff = objB.position - objA.position;
-    Vec3 n    = normalize(diff);
-    Vec3 cA   = objA.position + n * objA.radius;
-    float rA  = mandelbulbDE(cA - objA.position);
-    cA = cA - n * rA;
-    rA  = mandelbulbDE(cA - objA.position);
-
-    Vec3 cB   = objB.position - n * objB.radius;
-    float rB  = mandelbulbDE(cB - objB.position);
-    cB = cB + n * rB;
-    rB  = mandelbulbDE(cB - objB.position);
-
-    std::memcpy(objs.probe0, &cA, sizeof(float)*3);
-    objs.probe0[3] = rA;
-    std::memcpy(objs.probe1, &cB, sizeof(float)*3);
-    objs.probe1[3] = rB;
     vkMapMemory(device, objectMemory, 0, sizeof(GPUObjects), 0, &ptr);
     std::memcpy(ptr, &objs, sizeof(objs));
     vkUnmapMemory(device, objectMemory);
