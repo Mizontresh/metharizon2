@@ -13,6 +13,11 @@ inline Vec3 operator*(float s, Vec3 a){ return {a.x*s, a.y*s, a.z*s}; }
 inline float dot(Vec3 a, Vec3 b){ return a.x*b.x + a.y*b.y + a.z*b.z; }
 inline float length(Vec3 a){ return std::sqrt(dot(a,a)); }
 inline Vec3 normalize(Vec3 a){ float l = length(a); return (l>0)? a/l : Vec3{0,0,0}; }
+inline Vec3 cross(Vec3 a, Vec3 b){
+    return { a.y*b.z - a.z*b.y,
+             a.z*b.x - a.x*b.z,
+             a.x*b.y - a.y*b.x };
+}
 
 struct FractalObject {
     Vec3 position;
@@ -43,6 +48,41 @@ inline float mandelbulbDE(Vec3 p){
     return 0.5f*std::log(r)*r/dr;
 }
 
+inline bool collideSphereFractal(Vec3 C0, Vec3 V, float dt, float r,
+                                 Vec3 objPos,
+                                 Vec3& hitPoint, Vec3& hitNormal, float& tHit){
+    float len = length(V) * dt;
+    if(len <= 0.f) return false;
+    Vec3 dir = normalize(V);
+    float t = 0.f;
+    for(int i=0;i<64 && t < len; ++i){
+        Vec3 p = C0 + dir * t;
+        float d = mandelbulbDE(p - objPos) - r;
+        if(d < 1e-3f){
+            t -= d;
+            float lo = t - d, hi = t;
+            for(int j=0;j<4;++j){
+                float mid = 0.5f*(lo+hi);
+                float dm = mandelbulbDE(C0 + dir*mid - objPos) - r;
+                if(dm > 0.f) lo = mid; else hi = mid;
+            }
+            tHit = 0.5f*(lo+hi);
+            hitPoint = C0 + dir * tHit;
+            const float eps = 1e-4f;
+            Vec3 ex{eps,0,0}, ey{0,eps,0}, ez{0,0,eps};
+            Vec3 hp = hitPoint - objPos;
+            hitNormal = normalize(Vec3{
+                mandelbulbDE(hp+ex) - mandelbulbDE(hp-ex),
+                mandelbulbDE(hp+ey) - mandelbulbDE(hp-ey),
+                mandelbulbDE(hp+ez) - mandelbulbDE(hp-ez)
+            });
+            return true;
+        }
+        t += d;
+    }
+    return false;
+}
+
 inline void stepPhysics(FractalObject& a, FractalObject& b, float dt, float G=1.0f){
     // Compute gravitational force between the objects
     Vec3 diff = b.position - a.position;
@@ -60,23 +100,28 @@ inline void stepPhysics(FractalObject& a, FractalObject& b, float dt, float G=1.
     a.position = a.position + a.velocity * dt;
     b.position = b.position + b.velocity * dt;
 
-    // Resolve collisions using conservation of momentum
-    if(dist <= a.radius + b.radius){
-        float e = 1.0f; // coefficient of restitution (elastic)
-        Vec3 relativeVel = b.velocity - a.velocity;
-        float velAlongNormal = dot(relativeVel, n);
-        if(velAlongNormal < 0.0f){
-            float j = -(1.0f + e) * velAlongNormal;
-            j /= (1.0f / a.mass + 1.0f / b.mass);
-            Vec3 impulse = j * n;
-            a.velocity = a.velocity - impulse / a.mass;
-            b.velocity = b.velocity + impulse / b.mass;
+    // Continuous collision detection using fractal distance
+    Vec3 hit, normal; float tHit;
+    if(collideSphereFractal(a.position, a.velocity, dt, a.radius,
+                            b.position, hit, normal, tHit)){
+        a.position = hit;
+        float vn = dot(a.velocity - b.velocity, normal);
+        if(vn < 0.f){
+            float e = 1.0f;
+            float j = -(1.f+e)*vn / (1.f/a.mass + 1.f/b.mass);
+            a.velocity = a.velocity + (j/a.mass)*normal;
+            b.velocity = b.velocity - (j/b.mass)*normal;
         }
-
-        // Positional correction to avoid sinking
-        float penetration = a.radius + b.radius - dist;
-        Vec3 correction = n * (penetration * 0.5f);
-        a.position = a.position - correction;
-        b.position = b.position + correction;
+    }
+    if(collideSphereFractal(b.position, b.velocity, dt, b.radius,
+                            a.position, hit, normal, tHit)){
+        b.position = hit;
+        float vn = dot(b.velocity - a.velocity, normal);
+        if(vn < 0.f){
+            float e = 1.0f;
+            float j = -(1.f+e)*vn / (1.f/a.mass + 1.f/b.mass);
+            b.velocity = b.velocity + (j/b.mass)*normal;
+            a.velocity = a.velocity - (j/a.mass)*normal;
+        }
     }
 }
