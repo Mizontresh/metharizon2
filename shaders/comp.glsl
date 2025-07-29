@@ -1,4 +1,6 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
+#include "fractal.glsl"
 layout(local_size_x = 16, local_size_y = 16) in;
 
 layout(binding=0, rgba8) uniform writeonly image2D img;
@@ -26,33 +28,10 @@ bool raySphere(vec3 ro, vec3 rd, vec3 center, float radius, out float tHit) {
     return tHit > 0.0;
 }
 
-// Quaternion Julia distance estimator (bounded ~radius 4)
-float quatJuliaDE(vec3 p) {
-    vec4 z = vec4(0.0, p);
-    const vec4 c = vec4(-0.2, 0.7, 0.0, 0.0);
-    float dr = 1.0;
-    const int ITER = 12;
-    const float power = 8.0;
-    for(int i=0;i<ITER;i++){
-        float r = length(z);
-        if(r>4.0) break;
-        float theta = acos(z.w/r);
-        float phi   = atan(length(z.yzw), z.x);
-        float psi   = atan(z.y, z.z);
-        dr = pow(r, power-1.0)*power*dr + 1.0;
-        float rp = pow(r, power);
-        theta *= power; phi *= power; psi *= power;
-        z = rp * vec4(cos(theta),
-                      sin(theta)*sin(phi)*cos(psi),
-                      sin(theta)*sin(phi)*sin(psi),
-                      sin(theta)*cos(phi)) + c;
-    }
-    return length(z)/dr;
-}
 
 float sceneDE(vec3 p){
-    float d0 = quatJuliaDE(p - objs.obj[0].xyz);
-    float d1 = quatJuliaDE(p - objs.obj[1].xyz);
+    float d0 = fractalDE(p - objs.obj[0].xyz);
+    float d1 = fractalDE(p - objs.obj[1].xyz);
     return min(d0, d1);
 }
 
@@ -111,8 +90,8 @@ void main(){
         // simple side lighting
         vec3 lightDir = normalize(vec3(1.0, 1.0, 0.5));
         float diff = clamp(dot(n, lightDir), 0.0, 1.0);
-        float da = quatJuliaDE(p - objs.obj[0].xyz);
-        float db = quatJuliaDE(p - objs.obj[1].xyz);
+        float da = fractalDE(p - objs.obj[0].xyz);
+        float db = fractalDE(p - objs.obj[1].xyz);
         vec3 baseCol = da < db ? vec3(0.6,0.8,1.0) : vec3(1.0,0.6,0.4);
         col = mix(vec3(0.1,0.1,0.2), baseCol, diff);
     }
