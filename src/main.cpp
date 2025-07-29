@@ -54,6 +54,8 @@ int windowW = WIDTH, windowH = HEIGHT;
 bool headless = false;
 VkBuffer headlessBuffer = VK_NULL_HANDLE;
 VkDeviceMemory headlessMemory = VK_NULL_HANDLE;
+bool screenshotPending = false;
+uint32_t screenshotIndex = 0;
 
 void keyCallback(GLFWwindow* win, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
@@ -69,6 +71,8 @@ void keyCallback(GLFWwindow* win, int key, int scancode, int action, int mods) {
         } else {
             glfwSetWindowMonitor(win, nullptr, windowX, windowY, windowW, windowH, 0);
         }
+    } else if(key == GLFW_KEY_P && action == GLFW_PRESS){
+        screenshotPending = true;
     }
 }
 
@@ -628,6 +632,116 @@ static void savePPM(const char* path, uint32_t w, uint32_t h, const void* data){
     }
 }
 
+void saveScreenshot(const char* path, Camera& cam, const FractalObject& a, const FractalObject& b){
+    // allocate temporary buffer
+    VkBuffer buf;
+    VkDeviceMemory mem;
+    VkBufferCreateInfo bci{};
+    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bci.size = storageExtent.width * storageExtent.height * 4;
+    bci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VK_CHECK(vkCreateBuffer(device, &bci, nullptr, &buf));
+
+    VkMemoryRequirements mr;
+    vkGetBufferMemoryRequirements(device, buf, &mr);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(physDevice, &mp);
+    VkMemoryAllocateInfo mai{};
+    mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mai.allocationSize = mr.size;
+    for(uint32_t i=0;i<mp.memoryTypeCount;i++){
+        if((mr.memoryTypeBits & (1u<<i)) &&
+           (mp.memoryTypes[i].propertyFlags & (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
+             (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)){
+            mai.memoryTypeIndex = i;
+            break;
+        }
+    }
+    VK_CHECK(vkAllocateMemory(device, &mai, nullptr, &mem));
+    VK_CHECK(vkBindBufferMemory(device, buf, mem, 0));
+
+    // update UBOs
+    void* ptr;
+    vkMapMemory(device, cameraMemory, 0, sizeof(cam), 0, &ptr);
+    std::memcpy(ptr, &cam, sizeof(cam));
+    vkUnmapMemory(device, cameraMemory);
+
+    struct { float posRad[2][4]; float quat[2][4]; } odata;
+    odata.posRad[0][0]=a.position.x; odata.posRad[0][1]=a.position.y; odata.posRad[0][2]=a.position.z; odata.posRad[0][3]=a.radius;
+    odata.posRad[1][0]=b.position.x; odata.posRad[1][1]=b.position.y; odata.posRad[1][2]=b.position.z; odata.posRad[1][3]=b.radius;
+    odata.quat[0][0]=a.orientation.x; odata.quat[0][1]=a.orientation.y; odata.quat[0][2]=a.orientation.z; odata.quat[0][3]=a.orientation.w;
+    odata.quat[1][0]=b.orientation.x; odata.quat[1][1]=b.orientation.y; odata.quat[1][2]=b.orientation.z; odata.quat[1][3]=b.orientation.w;
+    vkMapMemory(device, objectMemory, 0, sizeof(odata), 0, &ptr);
+    std::memcpy(ptr, &odata, sizeof(odata));
+    vkUnmapMemory(device, objectMemory);
+
+    // command buffer
+    VkCommandBuffer cb;
+    VkCommandBufferAllocateInfo cbai{};
+    cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cbai.commandPool = cmdPool;
+    cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbai.commandBufferCount = 1;
+    VK_CHECK(vkAllocateCommandBuffers(device, &cbai, &cb));
+
+    VkCommandBufferBeginInfo bi{};
+    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    VK_CHECK(vkBeginCommandBuffer(cb, &bi));
+
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.image = storageImage;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,0,nullptr,0,nullptr,1,&barrier);
+
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout,0,1,&ds,0,nullptr);
+    vkCmdDispatch(cb, (storageExtent.width+15)/16, (storageExtent.height+15)/16, 1);
+
+    barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,0,nullptr,0,nullptr,1,&barrier);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = {storageExtent.width, storageExtent.height,1};
+    vkCmdCopyImageToBuffer(cb, storageImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buf, 1, &region);
+
+    VkBufferMemoryBarrier bmb{};
+    bmb.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    bmb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    bmb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    bmb.buffer = buf;
+    bmb.size = VK_WHOLE_SIZE;
+    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0,0,nullptr,1,&bmb,0,nullptr);
+
+    VK_CHECK(vkEndCommandBuffer(cb));
+
+    VkSubmitInfo si{};
+    si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &cb;
+    VK_CHECK(vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE));
+    vkQueueWaitIdle(queue);
+
+    vkMapMemory(device, mem, 0, VK_WHOLE_SIZE, 0, &ptr);
+    savePPM(path, storageExtent.width, storageExtent.height, ptr);
+    vkUnmapMemory(device, mem);
+
+    vkFreeCommandBuffers(device, cmdPool, 1, &cb);
+    vkDestroyBuffer(device, buf, nullptr);
+    vkFreeMemory(device, mem, nullptr);
+}
+
 void drawFrameHeadless(uint32_t frame, Camera& cam, const FractalObject& a, const FractalObject& b){
     if(!headless) return;
     // update camera UBO
@@ -927,7 +1041,7 @@ int main() {
         FractalObject objA{
             {-2.f,0.f,0.f}, // position
             {0.f,0.f,0.f},  // velocity
-            {0.f,0.f,0.f},  // angular velocity
+            {0.f,0.5f,0.f},  // angular velocity
             {1.f,0.f,0.f,0.f}, // orientation
             fracRad,
             1.f,  // mass
@@ -937,7 +1051,7 @@ int main() {
         FractalObject objB{
             {2.f,0.f,0.f},
             {0.f,0.f,0.f},
-            {0.f,0.f,0.f},
+            {0.f,-0.5f,0.f},
             {1.f,0.f,0.f,0.f},
             fracRad,
             1.f,
@@ -1022,6 +1136,12 @@ int main() {
             cam.pos[2] += move[2]*speed*dt;
 
             drawFrame(0, cam, objA, objB);
+            if(screenshotPending){
+                char name[64];
+                snprintf(name, sizeof(name), "screenshot_%04u.ppm", screenshotIndex++);
+                saveScreenshot(name, cam, objA, objB);
+                screenshotPending = false;
+            }
         }
         if(headless){
             for(uint32_t i=0;i<60;i++){
