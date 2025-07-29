@@ -44,30 +44,39 @@ inline float mandelbulbDE(Vec3 p){
 }
 
 inline void stepPhysics(FractalObject& a, FractalObject& b, float dt, float G=1.0f){
+    // Compute gravitational force between the objects
     Vec3 diff = b.position - a.position;
-    float distSq = dot(diff,diff) + 1e-6f;
+    float distSq = dot(diff, diff) + 1e-6f;
     float dist = std::sqrt(distSq);
     Vec3 n = diff / dist;
     float forceMag = G * a.mass * b.mass / distSq;
     Vec3 force = n * forceMag;
-    a.velocity = a.velocity + force / a.mass * dt;
-    b.velocity = b.velocity - force / b.mass * dt;
 
-    // integrate positions
+    // Update velocities from acceleration
+    a.velocity = a.velocity + (force / a.mass) * dt;
+    b.velocity = b.velocity - (force / b.mass) * dt;
+
+    // Integrate positions
     a.position = a.position + a.velocity * dt;
     b.position = b.position + b.velocity * dt;
+
+    // Resolve collisions using conservation of momentum
     if(dist <= a.radius + b.radius){
+        float e = 1.0f; // coefficient of restitution (elastic)
+        Vec3 relativeVel = b.velocity - a.velocity;
+        float velAlongNormal = dot(relativeVel, n);
+        if(velAlongNormal < 0.0f){
+            float j = -(1.0f + e) * velAlongNormal;
+            j /= (1.0f / a.mass + 1.0f / b.mass);
+            Vec3 impulse = j * n;
+            a.velocity = a.velocity - impulse / a.mass;
+            b.velocity = b.velocity + impulse / b.mass;
+        }
+
+        // Positional correction to avoid sinking
         float penetration = a.radius + b.radius - dist;
-        Vec3 correction = (penetration > 0.0f) ? n * (penetration * 0.5f) : Vec3{0,0,0};
+        Vec3 correction = n * (penetration * 0.5f);
         a.position = a.position - correction;
         b.position = b.position + correction;
-
-        float rel = dot(b.velocity - a.velocity, n);
-        if(rel < 0.0f){
-            float j = -(1.0f + 1.0f) * rel / (1.0f/a.mass + 1.0f/b.mass);
-            Vec3 impulse = n * j;
-            a.velocity = a.velocity + impulse / a.mass;
-            b.velocity = b.velocity - impulse / b.mass;
-        }
     }
 }
