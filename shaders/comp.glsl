@@ -10,9 +10,9 @@ layout(binding=1) uniform Camera {
 } cam;
 
 layout(binding=2, std140) uniform Objects {
-    vec4 posRad[2]; // xyz = position, w = radius
-    vec4 quat[2];   // quaternion (x, y, z, w)
-} objs;
+    vec4 posRad; // xyz = position, w = radius
+    vec4 quat;   // quaternion (x, y, z, w)
+} obj;
 
 vec3 quatRotate(vec4 q, vec3 v){
     vec3 t = 2.0 * cross(q.xyz, v);
@@ -40,17 +40,15 @@ float sierpinski(vec3 p){
     return length(p)/m;
 }
 
-float objectDE(int idx, vec3 p){
-    vec3 lp = quatRotateInv(objs.quat[idx], p - objs.posRad[idx].xyz);
-    float r = objs.posRad[idx].w;
+float objectDE(vec3 p){
+    vec3 lp = quatRotateInv(obj.quat, p - obj.posRad.xyz);
+    float r = obj.posRad.w;
 
     return sierpinski(lp / r) * r;
 }
 
 float sceneDE(vec3 p){
-    float d0 = objectDE(0, p);
-    float d1 = objectDE(1, p);
-    return min(d0, d1);
+    return objectDE(p);
 }
 
 vec3 sceneNormal(vec3 p){
