@@ -57,23 +57,17 @@ inline void stepPhysics(FractalObject& a, FractalObject& b, float dt, float G=1.
     a.position = a.position + a.velocity * dt;
     b.position = b.position + b.velocity * dt;
     if(dist <= a.radius + b.radius){
-        Vec3 mid = (a.position + b.position) * 0.5f;
-        float da = mandelbulbDE(mid - a.position);
-        float db = mandelbulbDE(mid - b.position);
-        if(da < 0.001f && db < 0.001f){
-            // positional correction to avoid sinking
-            float penetration = a.radius + b.radius - dist;
-            Vec3 correction = (penetration > 0.0f) ? n * (penetration * 0.5f) : Vec3{0,0,0};
-            a.position = a.position - correction;
-            b.position = b.position + correction;
+        float penetration = a.radius + b.radius - dist;
+        Vec3 correction = (penetration > 0.0f) ? n * (penetration * 0.5f) : Vec3{0,0,0};
+        a.position = a.position - correction;
+        b.position = b.position + correction;
 
-            float rel = dot(b.velocity - a.velocity, n);
-            if(rel < 0.0f){
-                float j = -(1.0f + 1.0f) * rel / (1.0f/a.mass + 1.0f/b.mass);
-                Vec3 impulse = n * j;
-                a.velocity = a.velocity + impulse / a.mass;
-                b.velocity = b.velocity - impulse / b.mass;
-            }
+        float rel = dot(b.velocity - a.velocity, n);
+        if(rel < 0.0f){
+            float j = -(1.0f + 1.0f) * rel / (1.0f/a.mass + 1.0f/b.mass);
+            Vec3 impulse = n * j;
+            a.velocity = a.velocity + impulse / a.mass;
+            b.velocity = b.velocity - impulse / b.mass;
         }
     }
 }
