@@ -588,9 +588,15 @@ void drawFrame(uint32_t /*unused*/, Camera &cam,
     Vec3 diff = objB.position - objA.position;
     Vec3 n    = normalize(diff);
     Vec3 cA   = objA.position + n * objA.radius;
-    Vec3 cB   = objB.position - n * objB.radius;
     float rA  = mandelbulbDE(cA - objA.position);
+    cA = cA - n * rA;
+    rA  = mandelbulbDE(cA - objA.position);
+
+    Vec3 cB   = objB.position - n * objB.radius;
     float rB  = mandelbulbDE(cB - objB.position);
+    cB = cB + n * rB;
+    rB  = mandelbulbDE(cB - objB.position);
+
     std::memcpy(objs.probe0, &cA, sizeof(float)*3);
     objs.probe0[3] = rA;
     std::memcpy(objs.probe1, &cB, sizeof(float)*3);

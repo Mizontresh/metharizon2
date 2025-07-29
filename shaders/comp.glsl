@@ -32,7 +32,7 @@ float mandelbulb(vec3 p) {
     vec3 z = p;
     float dr = 1.0;
     float r  = 0.0;
-    const int ITER = 8;
+    const int ITER = 12;
     for(int i=0;i<ITER;i++){
         r = length(z);
         if(r>2.0) break;
