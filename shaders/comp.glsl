@@ -13,6 +13,19 @@ layout(binding=2) uniform Objects {
     vec4 obj[2]; // xyz = position, w = radius
 } objs;
 
+bool raySphere(vec3 ro, vec3 rd, vec3 center, float radius, out float tHit) {
+    vec3 oc = ro - center;
+    float b = dot(oc, rd);
+    float c = dot(oc, oc) - radius*radius;
+    float h = b*b - c;
+    if(h < 0.0) return false;
+    h = sqrt(h);
+    float t0 = -b - h;
+    float t1 = -b + h;
+    tHit = t0 > 0.0 ? t0 : t1;
+    return tHit > 0.0;
+}
+
 // rotate-fold Mandelbulb-ish fractal
 float mandelbulb(vec3 p) {
     vec3 z = p;
@@ -69,6 +82,11 @@ void main(){
     vec3 rd = normalize(frag.x*cam.right + frag.y*cam.up + cam.forward);
     vec3 ro = cam.pos;
 
+    float tSphere = 1e9;
+    float tmp;
+    if(raySphere(ro, rd, objs.obj[0].xyz, objs.obj[0].w, tmp) && tmp < tSphere) tSphere = tmp;
+    if(raySphere(ro, rd, objs.obj[1].xyz, objs.obj[1].w, tmp) && tmp < tSphere) tSphere = tmp;
+
     // ray march
     float t = 0.0;
     const float MAXT = 50.0;
@@ -94,6 +112,9 @@ void main(){
         vec3 baseCol = da < db ? vec3(0.6,0.8,1.0) : vec3(1.0,0.6,0.4);
         col = mix(vec3(0.1,0.1,0.2), baseCol, diff);
     }
+
+    if(tSphere < min(t, MAXT))
+        col = mix(col, vec3(1.0,1.0,0.0), 0.3);
 
     imageStore(img, uv, vec4(col,1.0));
 }

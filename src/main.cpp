@@ -768,8 +768,9 @@ int main() {
         rotateVec(camRot, BASE_RIGHT,   cam.right);
 
         // Increase radius so the bounding sphere encloses the fractal
-        FractalObject objA{{-2.f,0.f,0.f},{0.f,0.f,0.f},2.f,1.f};
-        FractalObject objB{{ 2.f,0.f,0.f},{0.f,0.f,0.f},2.f,1.f};
+        // Slightly bigger bounding spheres so they are easy to see
+        FractalObject objA{{-2.f,0.f,0.f},{0.f,0.f,0.f},3.f,1.f};
+        FractalObject objB{{ 2.f,0.f,0.f},{0.f,0.f,0.f},3.f,1.f};
 
         double lastX = WIDTH/2.0, lastY = HEIGHT/2.0;
         glfwSetCursorPos(window, lastX, lastY);
@@ -787,7 +788,10 @@ int main() {
             float dt = std::chrono::duration<float>(t2 - lastTime).count();
             lastTime = t2;
 
-            stepPhysics(objA, objB, dt);
+            const int SUBSTEPS = 4;
+            float subDt = dt / float(SUBSTEPS);
+            for(int i=0;i<SUBSTEPS;i++)
+                stepPhysics(objA, objB, subDt);
 
             // mouse look
             double mx,my;
