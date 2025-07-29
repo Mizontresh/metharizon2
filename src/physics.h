@@ -10,6 +10,8 @@ inline Vec3 operator-(Vec3 a, Vec3 b){ return {a.x-b.x, a.y-b.y, a.z-b.z}; }
 inline Vec3 operator*(Vec3 a, float s){ return {a.x*s, a.y*s, a.z*s}; }
 inline Vec3 operator/(Vec3 a, float s){ return {a.x/s, a.y/s, a.z/s}; }
 inline Vec3 operator*(float s, Vec3 a){ return {a.x*s, a.y*s, a.z*s}; }
+inline Vec3& operator+=(Vec3& a, Vec3 b){ a.x+=b.x; a.y+=b.y; a.z+=b.z; return a; }
+inline Vec3& operator-=(Vec3& a, Vec3 b){ a.x-=b.x; a.y-=b.y; a.z-=b.z; return a; }
 inline float dot(Vec3 a, Vec3 b){ return a.x*b.x + a.y*b.y + a.z*b.z; }
 inline float length(Vec3 a){ return std::sqrt(dot(a,a)); }
 inline Vec3 normalize(Vec3 a){ float l = length(a); return (l>0)? a/l : Vec3{0,0,0}; }
@@ -83,45 +85,64 @@ inline bool collideSphereFractal(Vec3 C0, Vec3 V, float dt, float r,
     return false;
 }
 
-inline void stepPhysics(FractalObject& a, FractalObject& b, float dt, float G=1.0f){
-    // Compute gravitational force between the objects
-    Vec3 diff = b.position - a.position;
-    float distSq = dot(diff, diff) + 1e-6f;
-    float dist = std::sqrt(distSq);
-    Vec3 n = diff / dist;
-    float forceMag = G * a.mass * b.mass / distSq;
-    Vec3 force = n * forceMag;
+inline void stepPhysics(FractalObject &a, FractalObject &b, float dt, float G=1.0f){
+    // 1) Gravity impulse
+    Vec3 diff   = b.position - a.position;
+    float d2    = dot(diff, diff) + 1e-6f;
+    float force = G * a.mass * b.mass / d2;
+    Vec3 n      = normalize(diff);
+    Vec3 F      = n * force;
 
-    // Update velocities from acceleration
-    a.velocity = a.velocity + (force / a.mass) * dt;
-    b.velocity = b.velocity - (force / b.mass) * dt;
+    a.velocity += ( F / a.mass) * dt;
+    b.velocity -= ( F / b.mass) * dt;
 
-    // Integrate positions
-    a.position = a.position + a.velocity * dt;
-    b.position = b.position + b.velocity * dt;
-
-    // Continuous collision detection using fractal distance
-    Vec3 hit, normal; float tHit;
-    if(collideSphereFractal(a.position, a.velocity, dt, a.radius,
-                            b.position, hit, normal, tHit)){
-        a.position = hit;
-        float vn = dot(a.velocity - b.velocity, normal);
-        if(vn < 0.f){
-            float e = 1.0f;
-            float j = -(1.f+e)*vn / (1.f/a.mass + 1.f/b.mass);
-            a.velocity = a.velocity + (j/a.mass)*normal;
-            b.velocity = b.velocity - (j/b.mass)*normal;
+    // 2) Continuous collision+integration for A hitting B
+    {
+        Vec3 C0 = a.position;
+        Vec3 V0 = a.velocity;
+        Vec3 hitP, hitN;
+        float tHit;
+        if(collideSphereFractal(C0, V0, dt, a.radius,
+                                b.position, hitP, hitN, tHit)){
+            // a) position at contact
+            a.position = hitP;
+            // b) impulse
+            float vn = dot(V0 - b.velocity, hitN);
+            if(vn < 0.0f){
+                float e = 1.0f;
+                float j = -(1+e)*vn / (1.0f/a.mass + 1.0f/b.mass);
+                a.velocity = V0 + (j/a.mass)*hitN;
+                b.velocity -=        (j/b.mass)*hitN;
+            }
+            // c) finish the remaining motion after collision
+            float rem = dt - tHit;
+            a.position += a.velocity * rem;
+        } else {
+            // no collision
+            a.position = C0 + V0 * dt;
         }
     }
-    if(collideSphereFractal(b.position, b.velocity, dt, b.radius,
-                            a.position, hit, normal, tHit)){
-        b.position = hit;
-        float vn = dot(b.velocity - a.velocity, normal);
-        if(vn < 0.f){
-            float e = 1.0f;
-            float j = -(1.f+e)*vn / (1.f/a.mass + 1.f/b.mass);
-            b.velocity = b.velocity + (j/b.mass)*normal;
-            a.velocity = a.velocity - (j/a.mass)*normal;
+
+    // 3) And now B hitting A
+    {
+        Vec3 C0 = b.position;
+        Vec3 V0 = b.velocity;
+        Vec3 hitP, hitN;
+        float tHit;
+        if(collideSphereFractal(C0, V0, dt, b.radius,
+                                a.position, hitP, hitN, tHit)){
+            b.position = hitP;
+            float vn = dot(V0 - a.velocity, hitN);
+            if(vn < 0.0f){
+                float e = 1.0f;
+                float j = -(1+e)*vn / (1.0f/a.mass + 1.0f/b.mass);
+                b.velocity = V0 + (j/b.mass)*hitN;
+                a.velocity -=        (j/a.mass)*hitN;
+            }
+            float rem = dt - tHit;
+            b.position += b.velocity * rem;
+        } else {
+            b.position = C0 + V0 * dt;
         }
     }
 }
