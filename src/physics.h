@@ -97,14 +97,11 @@ inline float sierpinskiDE(Vec3 p){
     return length(p)/m;
 }
 
+// The DE never becomes negative along the x axis so the bisection search above
+// converged towards zero, resulting in a near‑zero radius. The Sierpiński
+// tetrahedron comfortably fits in a unit sphere, so just return 1.
 inline float estimateSierpinskiRadius(){
-    float lo = 0.0f, hi = 2.0f;
-    for(int i=0;i<32;i++){
-        float mid = (lo + hi) * 0.5f;
-        float d = sierpinskiDE(Vec3{mid,0.f,0.f});
-        if(d>0.f) hi = mid; else lo = mid;
-    }
-    return hi;
+    return 1.0f;
 }
 
 inline void integrateOrientation(FractalObject& obj, float dt){
