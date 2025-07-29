@@ -32,6 +32,11 @@ struct Camera {
     alignas(16) float right[3];
 };
 
+struct GPUObjects {
+    alignas(16) float obj0[4];
+    alignas(16) float obj1[4];
+};
+
 struct Quat {
     float w, x, y, z;
 };
@@ -114,6 +119,10 @@ VkExtent2D            storageExtent;
 VkBuffer              cameraBuffer;
 VkDeviceMemory        cameraMemory;
 VkDescriptorBufferInfo cameraBufferInfo;
+
+VkBuffer              objectBuffer;
+VkDeviceMemory        objectMemory;
+VkDescriptorBufferInfo objectBufferInfo;
 
 VkDescriptorSetLayout dsLayout;
 VkDescriptorPool      dsPool;
@@ -361,6 +370,37 @@ void createCameraBuffer() {
     cameraBufferInfo.range  = sizeof(Camera);
 }
 
+void createObjectBuffer() {
+    VkBufferCreateInfo bci{};
+    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bci.size  = sizeof(GPUObjects);
+    bci.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    VK_CHECK(vkCreateBuffer(device, &bci, nullptr, &objectBuffer));
+
+    VkMemoryRequirements mr;
+    vkGetBufferMemoryRequirements(device, objectBuffer, &mr);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(physDevice, &mp);
+
+    VkMemoryAllocateInfo mai{};
+    mai.sType          = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mai.allocationSize = mr.size;
+    for (uint32_t i = 0; i < mp.memoryTypeCount; i++) {
+        if ((mr.memoryTypeBits & (1<<i)) &&
+            (mp.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+           == VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+            mai.memoryTypeIndex = i;
+            break;
+        }
+    }
+    VK_CHECK(vkAllocateMemory(device, &mai, nullptr, &objectMemory));
+    VK_CHECK(vkBindBufferMemory(device, objectBuffer, objectMemory, 0));
+
+    objectBufferInfo.buffer = objectBuffer;
+    objectBufferInfo.offset = 0;
+    objectBufferInfo.range  = sizeof(GPUObjects);
+}
+
 void createDescriptorSet() {
     // storage image binding
     VkDescriptorSetLayoutBinding b0{};  
@@ -376,7 +416,14 @@ void createDescriptorSet() {
     b1.descriptorCount = 1;
     b1.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    std::array<VkDescriptorSetLayoutBinding,2> binds = { b0, b1 };
+    // object UBO binding
+    VkDescriptorSetLayoutBinding b2{};
+    b2.binding         = 2;
+    b2.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    b2.descriptorCount = 1;
+    b2.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    std::array<VkDescriptorSetLayoutBinding,3> binds = { b0, b1, b2 };
     VkDescriptorSetLayoutCreateInfo dsli{};
     dsli.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     dsli.bindingCount = (uint32_t)binds.size();
@@ -386,7 +433,8 @@ void createDescriptorSet() {
     // pool sizes
     VkDescriptorPoolSize ps0{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  1 };
     VkDescriptorPoolSize ps1{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 };
-    std::array<VkDescriptorPoolSize,2> pss = { ps0, ps1 };
+    VkDescriptorPoolSize ps2{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 };
+    std::array<VkDescriptorPoolSize,3> pss = { ps0, ps1, ps2 };
     VkDescriptorPoolCreateInfo dpci{};
     dpci.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     dpci.maxSets       = 1;
@@ -420,7 +468,15 @@ void createDescriptorSet() {
     w1.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     w1.pBufferInfo     = &cameraBufferInfo;
 
-    std::array<VkWriteDescriptorSet,2> writes = { w0, w1 };
+    VkWriteDescriptorSet w2{};
+    w2.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w2.dstSet          = ds;
+    w2.dstBinding      = 2;
+    w2.descriptorCount = 1;
+    w2.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    w2.pBufferInfo     = &objectBufferInfo;
+
+    std::array<VkWriteDescriptorSet,3> writes = { w0, w1, w2 };
     vkUpdateDescriptorSets(device,
                            (uint32_t)writes.size(), writes.data(),
                             0, nullptr);
@@ -505,7 +561,8 @@ void recreateSwapchain(uint32_t width, uint32_t height) {
 }
 
 // One‐time record & submit per frame:
-void drawFrame(uint32_t /*unused*/, Camera &cam) {
+void drawFrame(uint32_t /*unused*/, Camera &cam,
+               FractalObject& objA, FractalObject& objB) {
     // acquire
     uint32_t imageIndex;
     VK_CHECK(vkAcquireNextImageKHR(device, swapchain,
@@ -518,6 +575,16 @@ void drawFrame(uint32_t /*unused*/, Camera &cam) {
                 sizeof(cam), 0, &ptr);
     std::memcpy(ptr, &cam, sizeof(cam));
     vkUnmapMemory(device, cameraMemory);
+
+    // update object UBO
+    GPUObjects objs{};
+    std::memcpy(objs.obj0, &objA.position, sizeof(float)*3);
+    objs.obj0[3] = objA.radius;
+    std::memcpy(objs.obj1, &objB.position, sizeof(float)*3);
+    objs.obj1[3] = objB.radius;
+    vkMapMemory(device, objectMemory, 0, sizeof(GPUObjects), 0, &ptr);
+    std::memcpy(ptr, &objs, sizeof(objs));
+    vkUnmapMemory(device, objectMemory);
 
     // record
     VkCommandBuffer cb = cmdBuffers[imageIndex];
@@ -685,6 +752,7 @@ int main() {
         createSwapchain(fbw, fbh);
         createStorageImage();
         createCameraBuffer();
+        createObjectBuffer();
         createDescriptorSet();
         createComputePipeline();
         createCommandPoolAndBuffers();
@@ -776,7 +844,7 @@ int main() {
             cam.pos[1] += move[1]*speed*dt;
             cam.pos[2] += move[2]*speed*dt;
 
-            drawFrame(0, cam);
+            drawFrame(0, cam, objA, objB);
         }
 
         vkDeviceWaitIdle(device);
