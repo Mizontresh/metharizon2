@@ -767,8 +767,9 @@ int main() {
         rotateVec(camRot, BASE_UP,      cam.up);
         rotateVec(camRot, BASE_RIGHT,   cam.right);
 
-        FractalObject objA{{-2.f,0.f,0.f},{0.f,0.f,0.f},1.f,1.f};
-        FractalObject objB{{ 2.f,0.f,0.f},{0.f,0.f,0.f},1.f,1.f};
+        // Increase radius so the bounding sphere encloses the fractal
+        FractalObject objA{{-2.f,0.f,0.f},{0.f,0.f,0.f},2.f,1.f};
+        FractalObject objB{{ 2.f,0.f,0.f},{0.f,0.f,0.f},2.f,1.f};
 
         double lastX = WIDTH/2.0, lastY = HEIGHT/2.0;
         glfwSetCursorPos(window, lastX, lastY);
