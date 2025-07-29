@@ -33,3 +33,7 @@ set_target_properties(Metharizon PROPERTIES
   CXX_STANDARD     17
   CXX_STANDARD_REQUIRED ON
 )
+
+# Ensure shared shader include is available next to compiled shaders
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fractal.glsl
+     DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/shaders)
