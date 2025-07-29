@@ -25,7 +25,7 @@ inline float mandelbulbDE(Vec3 p){
     Vec3 z = p;
     float dr = 1.0f;
     float r  = 0.0f;
-    const int ITER = 8;
+    const int ITER = 12;
     for(int i=0;i<ITER;i++){
         r = length(z);
         if(r>2.0f) break;
