@@ -1043,7 +1043,7 @@ int main() {
             {0.f,0.f,0.f},  // velocity
             {0.f,0.5f,0.f},  // angular velocity
             {1.f,0.f,0.f,0.f}, // orientation
-            fracRad,
+            fracRad * 50.f,
             1.f,  // mass
             0.4f, // inertia
             sierpinskiDE
@@ -1053,7 +1053,7 @@ int main() {
             {0.f,0.f,0.f},
             {0.f,-0.5f,0.f},
             {1.f,0.f,0.f,0.f},
-            fracRad,
+            fracRad * 50.f,
             1.f,
             0.4f,
             sierpinskiDE
