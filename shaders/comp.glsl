@@ -9,6 +9,10 @@ layout(binding=1) uniform Camera {
     vec3 right;
 } cam;
 
+layout(binding=2) uniform Objects {
+    vec4 obj[2]; // xyz = position, w = radius
+} objs;
+
 // rotate-fold Mandelbulb-ish fractal
 float mandelbulb(vec3 p) {
     vec3 z = p;
@@ -30,13 +34,28 @@ float mandelbulb(vec3 p) {
     return 0.5*log(r)*r/dr;
 }
 
-// estimate normal
+float sceneDE(vec3 p){
+    float d0 = mandelbulb(p - objs.obj[0].xyz);
+    float d1 = mandelbulb(p - objs.obj[1].xyz);
+    return min(d0, d1);
+}
+
+vec3 sceneNormal(vec3 p){
+    float e = 0.0005;
+    return normalize(vec3(
+        sceneDE(p+vec3(e,0,0)) - sceneDE(p-vec3(e,0,0)),
+        sceneDE(p+vec3(0,e,0)) - sceneDE(p-vec3(0,e,0)),
+        sceneDE(p+vec3(0,0,e)) - sceneDE(p-vec3(0,0,e))
+    ));
+}
+
+// estimate normal of the scene
 vec3 getNormal(vec3 p) {
     float e = 0.0005;
     return normalize(vec3(
-        mandelbulb(p+vec3(e,0,0)) - mandelbulb(p-vec3(e,0,0)),
-        mandelbulb(p+vec3(0,e,0)) - mandelbulb(p-vec3(0,e,0)),
-        mandelbulb(p+vec3(0,0,e)) - mandelbulb(p-vec3(0,0,e))
+        sceneDE(p+vec3(e,0,0)) - sceneDE(p-vec3(e,0,0)),
+        sceneDE(p+vec3(0,e,0)) - sceneDE(p-vec3(0,e,0)),
+        sceneDE(p+vec3(0,0,e)) - sceneDE(p-vec3(0,0,e))
     ));
 }
 
@@ -56,7 +75,7 @@ void main(){
     float d;
     for(int i=0;i<128;i++){
         vec3 p = ro + rd*t;
-        d = mandelbulb(p);
+        d = sceneDE(p);
         if(d < 0.001 || t > MAXT) break;
         t += d;
     }
@@ -70,7 +89,10 @@ void main(){
         // simple side lighting
         vec3 lightDir = normalize(vec3(1.0, 1.0, 0.5));
         float diff = clamp(dot(n, lightDir), 0.0, 1.0);
-        col = mix(vec3(0.1,0.1,0.2), vec3(0.6,0.8,1.0), diff);
+        float da = mandelbulb(p - objs.obj[0].xyz);
+        float db = mandelbulb(p - objs.obj[1].xyz);
+        vec3 baseCol = da < db ? vec3(0.6,0.8,1.0) : vec3(1.0,0.6,0.4);
+        col = mix(vec3(0.1,0.1,0.2), baseCol, diff);
     }
 
     imageStore(img, uv, vec4(col,1.0));
