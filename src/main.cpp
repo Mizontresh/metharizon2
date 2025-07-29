@@ -767,9 +767,11 @@ int main() {
         rotateVec(camRot, BASE_UP,      cam.up);
         rotateVec(camRot, BASE_RIGHT,   cam.right);
 
-        // Radius roughly matches the fractal's extent
-        FractalObject objA{{-2.f,0.f,0.f},{0.f,0.f,0.f},2.f,1.f};
-        FractalObject objB{{ 2.f,0.f,0.f},{0.f,0.f,0.f},2.f,1.f};
+        // Radius just large enough to contain the fractal.  Using a slightly
+        // smaller value keeps the two bounding spheres from touching at the
+        // start of the simulation.
+        FractalObject objA{{-2.f,0.f,0.f},{0.f,0.f,0.f},1.8f,1.f};
+        FractalObject objB{{ 2.f,0.f,0.f},{0.f,0.f,0.f},1.8f,1.f};
 
         double lastX = WIDTH/2.0, lastY = HEIGHT/2.0;
         glfwSetCursorPos(window, lastX, lastY);
