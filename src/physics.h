@@ -93,74 +93,75 @@ inline bool collideSphereFractal(
     }
     return false;
 }
+// March from O along unit dir until fractal surface reached
+inline float sphereMarchSurface(Vec3 O, Vec3 dir){
+    float t=0.f;
+    const float MAX_EXTENT=5.0f;
+    const float STEP_EPS=1e-4f;
+    for(int i=0;i<128;i++){
+        Vec3 p = O + dir*t;
+        float dist = mandelbulbDE(p);
+        if(dist < STEP_EPS) return t;
+        t += dist;
+        if(t>MAX_EXTENT) break;
+    }
+    return 1e6f;
+}
+
+// narrow phase check between two fractal centers
+inline bool collideFractalFractal(const FractalObject &A, const FractalObject &B,
+                                  Vec3 &contact, Vec3 &normal, float &penetration){
+    Vec3 diff = {B.position.x - A.position.x,
+                 B.position.y - A.position.y,
+                 B.position.z - A.position.z};
+    float dist = length(diff);
+    if(dist < 1e-6f) return false;
+    Vec3 n = diff / dist;
+    float tA = sphereMarchSurface(A.position, n);
+    float tB = sphereMarchSurface(B.position, n*-1.0f);
+    if(tA + tB >= dist){
+        Vec3 contactA = A.position + n * tA;
+        Vec3 contactB = B.position - n * tB;
+        contact = (contactA + contactB) / 2.f;
+        normal = n;
+        penetration = tA + tB - dist;
+        return true;
+    }
+    return false;
+}
 
 inline void stepPhysics(FractalObject &a, FractalObject &b, float dt, float G=1.0f){
-    // 1) Gravity impulse
-    Vec3 diff   = b.position - a.position;
-    float d2    = dot(diff, diff) + 1e-6f;
+    // gravity
+    Vec3 diff = {b.position.x - a.position.x,
+                 b.position.y - a.position.y,
+                 b.position.z - a.position.z};
+    float d2 = dot(diff, diff) + 1e-6f;
     float force = G * a.mass * b.mass / d2;
-    Vec3 n      = normalize(diff);
-    Vec3 F      = n * force;
+    Vec3 n = normalize(diff);
+    Vec3 F = n * force;
+    a.velocity += (F / a.mass) * dt;
+    b.velocity -= (F / b.mass) * dt;
 
-    a.velocity += ( F / a.mass) * dt;
-    b.velocity -= ( F / b.mass) * dt;
+    // integrate
+    a.position += a.velocity * dt;
+    b.position += b.velocity * dt;
 
-    // 2) Continuous collision+integration for A hitting B
-    {
-        Vec3 C0 = a.position;
-        Vec3 V0 = a.velocity;
-        Vec3 deltaA = a.velocity * dt;
-        Vec3 hitP, hitN;
-        float tHit;
-        if(collideSphereFractal(C0, deltaA, a.radius,
-                                b.position, hitP, hitN, tHit)){
-            // tHit is in [0,len], so convert back to time
-            float lenA = length(deltaA);
-            float tTime = (lenA > 0)
-                          ? (tHit / lenA) * dt
-                          : 0.0f;
-            // snap to contact
-            a.position = C0 + normalize(deltaA) * tHit;
-            // b) impulse
-            float vn = dot(V0 - b.velocity, hitN);
-            if(vn < 0.0f){
-                float e = 1.0f;
-                float j = -(1+e)*vn / (1.0f/a.mass + 1.0f/b.mass);
-                a.velocity = V0 + (j/a.mass)*hitN;
-                b.velocity -=        (j/b.mass)*hitN;
-            }
-            // c) finish the remaining motion after collision
-            a.position += a.velocity * (dt - tTime);
-        } else {
-            // no collision
-            a.position = C0 + deltaA;
+    // narrow-phase collision between fractal surfaces
+    Vec3 contact, normal;
+    float penetration;
+    if(collideFractalFractal(a, b, contact, normal, penetration)){
+        Vec3 vRel = {a.velocity.x - b.velocity.x,
+                     a.velocity.y - b.velocity.y,
+                     a.velocity.z - b.velocity.z};
+        float vN = dot(vRel, normal);
+        if(vN < 0.0f){
+            float e = 1.0f;
+            float j = -(1.0f+e)*vN / (1.0f/a.mass + 1.0f/b.mass);
+            a.velocity += (j/a.mass) * normal;
+            b.velocity -= (j/b.mass) * normal;
         }
-    }
-
-    // 3) And now B hitting A
-    {
-        Vec3 C0 = b.position;
-        Vec3 V0 = b.velocity;
-        Vec3 deltaB = b.velocity * dt;
-        Vec3 hitP, hitN;
-        float tHit;
-        if(collideSphereFractal(C0, deltaB, b.radius,
-                                a.position, hitP, hitN, tHit)){
-            float lenB = length(deltaB);
-            float tTime = (lenB > 0)
-                          ? (tHit / lenB) * dt
-                          : 0.0f;
-            b.position = C0 + normalize(deltaB) * tHit;
-            float vn = dot(V0 - a.velocity, hitN);
-            if(vn < 0.0f){
-                float e = 1.0f;
-                float j = -(1+e)*vn / (1.0f/a.mass + 1.0f/b.mass);
-                b.velocity = V0 + (j/b.mass)*hitN;
-                a.velocity -=        (j/a.mass)*hitN;
-            }
-            b.position += b.velocity * (dt - tTime);
-        } else {
-            b.position = C0 + deltaB;
-        }
+        a.position -= normal * (penetration*0.5f);
+        b.position += normal * (penetration*0.5f);
     }
 }
+
