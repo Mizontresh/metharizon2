@@ -1037,7 +1037,7 @@ int main() {
         rotateVec(camRot, BASE_UP,      cam.up);
         rotateVec(camRot, BASE_RIGHT,   cam.right);
 
-        float fracRad = estimateSierpinskiRadius();
+        float fracRad = estimateSierpinskiRadius() * 50.f;
         FractalObject objA{
             {-2.f,0.f,0.f}, // position
             {0.f,0.f,0.f},  // velocity
