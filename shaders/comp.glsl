@@ -86,8 +86,8 @@ void main(){
 
     vec3 col;
     if(t > MAXT) {
-        // white background so fractals stand out
-        col = vec3(1.0);
+        // blue background so fractals stand out
+        col = vec3(0.1, 0.1, 0.3);
     } else {
         vec3 p = ro + rd*t;
         vec3 n = sceneNormal(p);
