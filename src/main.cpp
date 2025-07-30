@@ -12,6 +12,11 @@
 #include <stdexcept>
 #include <vector>
 #include <cmath>
+#include "camera.hpp"
+
+
+#include "scene.hpp"
+#include "physics_module.hpp"   // <-- new physics module integration
 
 const uint32_t WIDTH  = 800;
 const uint32_t HEIGHT = 600;
@@ -24,12 +29,7 @@ const uint32_t HEIGHT = 600;
             throw std::runtime_error(std::string("Vulkan error at ") + #fn);    \
     } while (0)
 
-struct Camera {
-    alignas(16) float pos[3];
-    alignas(16) float forward[3];
-    alignas(16) float up[3];
-    alignas(16) float right[3];
-};
+
 
 struct Quat {
     float w, x, y, z;
@@ -210,7 +210,6 @@ void createLogicalDeviceAndQueue() {
     qci.queueCount       = 1;
     qci.pQueuePriorities = &prio;
 
-    // Enable swapchain extension so we can present
     const char* devExts[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
     VkDeviceCreateInfo di{};
@@ -225,11 +224,9 @@ void createLogicalDeviceAndQueue() {
 }
 
 void createSwapchain(uint32_t width, uint32_t height) {
-    // Query surface capabilities
     VkSurfaceCapabilitiesKHR caps;
     VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physDevice, surface, &caps));
 
-    // choose extent
     if (caps.currentExtent.width != UINT32_MAX) {
         swapchainExtent = caps.currentExtent;
     } else {
@@ -238,13 +235,11 @@ void createSwapchain(uint32_t width, uint32_t height) {
         swapchainExtent.height = std::clamp(swapchainExtent.height, caps.minImageExtent.height, caps.maxImageExtent.height);
     }
 
-    // formats
     uint32_t fmtCount=0;
     vkGetPhysicalDeviceSurfaceFormatsKHR(physDevice, surface, &fmtCount, nullptr);
     if (!fmtCount) throw std::runtime_error("No surface formats");
     std::vector<VkSurfaceFormatKHR> fmts(fmtCount);
     vkGetPhysicalDeviceSurfaceFormatsKHR(physDevice, surface, &fmtCount, fmts.data());
-    // pick RGBA8 UNORM if possible
     swapchainFormat = fmts[0].format;
     for (auto &f : fmts) {
         if (f.format == VK_FORMAT_B8G8R8A8_UNORM) {
@@ -253,20 +248,20 @@ void createSwapchain(uint32_t width, uint32_t height) {
         }
     }
 
-    VkSwapchainCreateInfoKHR sci{};
-    sci.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    sci.surface          = surface;
-    sci.minImageCount    = caps.minImageCount + 1;
-    sci.imageFormat      = swapchainFormat;
-    sci.imageColorSpace  = fmts[0].colorSpace;
-    sci.imageExtent      = swapchainExtent;
-    sci.imageArrayLayers = 1;
-    sci.imageUsage       = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    sci.preTransform     = caps.currentTransform;
-    sci.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    sci.presentMode      = VK_PRESENT_MODE_FIFO_KHR;
-    sci.clipped          = VK_TRUE;
+    VkSwapchainCreateInfoKHR sci{};                                                                                                                                    
+    sci.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;                                                        
+    sci.surface          = surface;                                                                                                  
+    sci.minImageCount    = caps.minImageCount + 1;                                                                                     
+    sci.imageFormat      = swapchainFormat;                                                                                           
+    sci.imageColorSpace  = fmts[0].colorSpace;                                                                                         
+    sci.imageExtent      = swapchainExtent;                                                                                            
+    sci.imageArrayLayers = 1;                                                                                                          
+    sci.imageUsage       = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;                                        
+    sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;                                                                                  
+    sci.preTransform     = caps.currentTransform;                                                                                      
+    sci.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;                                                                          
+    sci.presentMode      = VK_PRESENT_MODE_FIFO_KHR;                                                                                   
+    sci.clipped          = VK_TRUE;                                                                                                     
 
     VK_CHECK(vkCreateSwapchainKHR(device, &sci, nullptr, &swapchain));
 
@@ -369,31 +364,30 @@ void createDescriptorSet() {
     b0.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
     // camera UBO binding
-    VkDescriptorSetLayoutBinding b1{};
+    VkDescriptorSetLayoutBinding b1{};  
     b1.binding         = 1;
     b1.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     b1.descriptorCount = 1;
     b1.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
     std::array<VkDescriptorSetLayoutBinding,2> binds = { b0, b1 };
-    VkDescriptorSetLayoutCreateInfo dsli{};
+    VkDescriptorSetLayoutCreateInfo dsli{};  
     dsli.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     dsli.bindingCount = (uint32_t)binds.size();
     dsli.pBindings    = binds.data();
     VK_CHECK(vkCreateDescriptorSetLayout(device, &dsli, nullptr, &dsLayout));
 
-    // pool sizes
     VkDescriptorPoolSize ps0{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  1 };
     VkDescriptorPoolSize ps1{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 };
     std::array<VkDescriptorPoolSize,2> pss = { ps0, ps1 };
-    VkDescriptorPoolCreateInfo dpci{};
+    VkDescriptorPoolCreateInfo dpci{};  
     dpci.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     dpci.maxSets       = 1;
     dpci.poolSizeCount = (uint32_t)pss.size();
     dpci.pPoolSizes    = pss.data();
     VK_CHECK(vkCreateDescriptorPool(device, &dpci, nullptr, &dsPool));
 
-    VkDescriptorSetAllocateInfo dsai{};
+    VkDescriptorSetAllocateInfo dsai{};  
     dsai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     dsai.descriptorPool     = dsPool;
     dsai.descriptorSetCount = 1;
@@ -403,7 +397,7 @@ void createDescriptorSet() {
     storageImageInfo.imageView   = storageView;
     storageImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-    VkWriteDescriptorSet w0{};
+    VkWriteDescriptorSet w0{};  
     w0.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     w0.dstSet          = ds;
     w0.dstBinding      = 0;
@@ -411,7 +405,7 @@ void createDescriptorSet() {
     w0.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     w0.pImageInfo      = &storageImageInfo;
 
-    VkWriteDescriptorSet w1{};
+    VkWriteDescriptorSet w1{};  
     w1.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     w1.dstSet          = ds;
     w1.dstBinding      = 1;
@@ -433,13 +427,13 @@ void createComputePipeline() {
     smci.pCode    = reinterpret_cast<const uint32_t*>(spv.data());
     VK_CHECK(vkCreateShaderModule(device, &smci, nullptr, &compShader));
 
-    VkPipelineLayoutCreateInfo plci{};
+    VkPipelineLayoutCreateInfo plci{};  
     plci.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     plci.setLayoutCount = 1;
     plci.pSetLayouts    = &dsLayout;
     VK_CHECK(vkCreatePipelineLayout(device, &plci, nullptr, &pipelineLayout));
 
-    VkComputePipelineCreateInfo cpci{};
+    VkComputePipelineCreateInfo cpci{};  
     cpci.sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     cpci.stage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     cpci.stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -453,13 +447,13 @@ void createComputePipeline() {
 }
 
 void createCommandPoolAndBuffers() {
-    VkCommandPoolCreateInfo cpi{};
+    VkCommandPoolCreateInfo cpi{};  
     cpi.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     cpi.queueFamilyIndex = queueFamily;
     VK_CHECK(vkCreateCommandPool(device, &cpi, nullptr, &cmdPool));
 
     cmdBuffers.resize(swapImageViews.size());
-    VkCommandBufferAllocateInfo cbai{};
+    VkCommandBufferAllocateInfo cbai{};  
     cbai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     cbai.commandPool        = cmdPool;
     cbai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -468,7 +462,7 @@ void createCommandPoolAndBuffers() {
 }
 
 void createSyncObjects() {
-    VkSemaphoreCreateInfo sci{};
+    VkSemaphoreCreateInfo sci{};  
     sci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     VK_CHECK(vkCreateSemaphore(device, &sci, nullptr, &semImageAvailable));
     VK_CHECK(vkCreateSemaphore(device, &sci, nullptr, &semRenderFinished));
@@ -521,13 +515,16 @@ void drawFrame(uint32_t /*unused*/, Camera &cam) {
     // record
     VkCommandBuffer cb = cmdBuffers[imageIndex];
     vkResetCommandBuffer(cb, 0);
-    VkCommandBufferBeginInfo bi{};
+    VkCommandBufferBeginInfo bi{};  
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     VK_CHECK(vkBeginCommandBuffer(cb, &bi));
 
-    // transition storageImage -> GENERAL for compute
+    // physics compute dispatch
+    PhysicsModule::recordDispatch(cb);
+
+    // ray‐march compute pass
     {
-        VkImageMemoryBarrier barrier{};
+        VkImageMemoryBarrier barrier{};  
         barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
         barrier.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
@@ -541,7 +538,7 @@ void drawFrame(uint32_t /*unused*/, Camera &cam) {
         vkCmdPipelineBarrier(cb,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            0, 0,nullptr, 0,nullptr,
+            0,0,nullptr,0,nullptr,
             1,&barrier);
     }
 
@@ -554,9 +551,9 @@ void drawFrame(uint32_t /*unused*/, Camera &cam) {
         (storageExtent.height +15)/16,
         1);
 
-    // transition storageImage -> TRANSFER_SRC
+    // transition and copy to swapchain, then present…
     {
-        VkImageMemoryBarrier barrier{};
+        VkImageMemoryBarrier barrier{};  
         barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier.oldLayout           = VK_IMAGE_LAYOUT_GENERAL;
         barrier.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
@@ -574,9 +571,8 @@ void drawFrame(uint32_t /*unused*/, Camera &cam) {
             1,&barrier);
     }
 
-    // transition swapchain image -> TRANSFER_DST
     {
-        VkImageMemoryBarrier barrier{};
+        VkImageMemoryBarrier barrier{};  
         barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
         barrier.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -594,29 +590,19 @@ void drawFrame(uint32_t /*unused*/, Camera &cam) {
             1,&barrier);
     }
 
-    // copy storage -> swapchain
     {
         VkImageCopy copyRegion{};
-        // source subresource
         copyRegion.srcSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
         copyRegion.srcSubresource.mipLevel       = 0;
         copyRegion.srcSubresource.baseArrayLayer = 0;
         copyRegion.srcSubresource.layerCount     = 1;
         copyRegion.srcOffset                     = {0,0,0};
-
-        // destination subresource
         copyRegion.dstSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
         copyRegion.dstSubresource.mipLevel       = 0;
         copyRegion.dstSubresource.baseArrayLayer = 0;
         copyRegion.dstSubresource.layerCount     = 1;
         copyRegion.dstOffset                     = {0,0,0};
-
-        // full extent copy
-        copyRegion.extent = {
-            swapchainExtent.width,
-            swapchainExtent.height,
-            1
-        };
+        copyRegion.extent = { swapchainExtent.width, swapchainExtent.height, 1 };
 
         vkCmdCopyImage(cb,
             storageImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -624,9 +610,8 @@ void drawFrame(uint32_t /*unused*/, Camera &cam) {
             1, &copyRegion);
     }
 
-    // transition swapchain -> PRESENT_SRC
     {
-        VkImageMemoryBarrier barrier{};
+        VkImageMemoryBarrier barrier{};  
         barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         barrier.newLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
@@ -646,8 +631,7 @@ void drawFrame(uint32_t /*unused*/, Camera &cam) {
 
     VK_CHECK(vkEndCommandBuffer(cb));
 
-    // submit
-    VkSubmitInfo si{};
+    VkSubmitInfo si{};  
     si.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     si.waitSemaphoreCount   = 1;
     si.pWaitSemaphores      = &semImageAvailable;
@@ -660,8 +644,7 @@ void drawFrame(uint32_t /*unused*/, Camera &cam) {
 
     VK_CHECK(vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE));
 
-    // present
-    VkPresentInfoKHR pi{};
+    VkPresentInfoKHR pi{};  
     pi.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     pi.waitSemaphoreCount = 1;
     pi.pWaitSemaphores    = &semRenderFinished;
@@ -689,10 +672,15 @@ int main() {
         createCommandPoolAndBuffers();
         createSyncObjects();
 
+        // initialize physics module
+        PhysicsModule::init(
+            device, physDevice, queue, queueFamily,
+            dsLayout, dsPool, storageExtent
+        );
+
         // initial camera
         Camera cam{};
         cam.pos[0]=0; cam.pos[1]=0; cam.pos[2]=3;
-
         Quat camRot{1.f,0.f,0.f,0.f};
         rotateVec(camRot, BASE_FORWARD, cam.forward);
         rotateVec(camRot, BASE_UP,      cam.up);
@@ -709,7 +697,8 @@ int main() {
             glfwGetFramebufferSize(window, &curW, &curH);
             if (curW != (int)swapchainExtent.width || curH != (int)swapchainExtent.height)
                 recreateSwapchain(curW, curH);
-            // delta
+
+            // delta time
             auto t2 = now();
             float dt = std::chrono::duration<float>(t2 - lastTime).count();
             lastTime = t2;
@@ -726,22 +715,18 @@ int main() {
 
             float upAxis[3];
             rotateVec(camRot, BASE_UP, upAxis);
-            if(yaw != 0.f) {
-                camRot = quatMul(quatFromAxisAngle(upAxis, yaw), camRot);
-            }
+            if (yaw!=0.f) camRot = quatMul(quatFromAxisAngle(upAxis,yaw), camRot);
             float rightAxis[3];
             rotateVec(camRot, BASE_RIGHT, rightAxis);
-            if(pitch != 0.f) {
-                camRot = quatMul(quatFromAxisAngle(rightAxis, pitch), camRot);
-            }
+            if (pitch!=0.f) camRot = quatMul(quatFromAxisAngle(rightAxis,pitch), camRot);
 
             float roll = 0.f;
             if(glfwGetKey(window, GLFW_KEY_Q)==GLFW_PRESS) roll += 1.f;
             if(glfwGetKey(window, GLFW_KEY_E)==GLFW_PRESS) roll -= 1.f;
-            if(roll != 0.f) {
+            if(roll!=0.f) {
                 float fwdAxis[3];
                 rotateVec(camRot, BASE_FORWARD, fwdAxis);
-                camRot = quatMul(quatFromAxisAngle(fwdAxis, roll*1.5f*dt), camRot);
+                camRot = quatMul(quatFromAxisAngle(fwdAxis,roll*1.5f*dt),camRot);
             }
 
             quatNormalize(camRot);
@@ -750,13 +735,13 @@ int main() {
             rotateVec(camRot, BASE_RIGHT,   cam.right);
 
             float mvF=0.f,mvR=0.f,mvU=0.f;
-            if(glfwGetKey(window, GLFW_KEY_W)==GLFW_PRESS) mvF += 1.f;
-            if(glfwGetKey(window, GLFW_KEY_S)==GLFW_PRESS) mvF -= 1.f;
-            if(glfwGetKey(window, GLFW_KEY_D)==GLFW_PRESS) mvR += 1.f;
-            if(glfwGetKey(window, GLFW_KEY_A)==GLFW_PRESS) mvR -= 1.f;
-            if(glfwGetKey(window, GLFW_KEY_SPACE)==GLFW_PRESS) mvU += 1.f;
+            if(glfwGetKey(window, GLFW_KEY_W)==GLFW_PRESS) mvF+=1.f;
+            if(glfwGetKey(window, GLFW_KEY_S)==GLFW_PRESS) mvF-=1.f;
+            if(glfwGetKey(window, GLFW_KEY_D)==GLFW_PRESS) mvR+=1.f;
+            if(glfwGetKey(window, GLFW_KEY_A)==GLFW_PRESS) mvR-=1.f;
+            if(glfwGetKey(window, GLFW_KEY_SPACE)==GLFW_PRESS) mvU+=1.f;
             if(glfwGetKey(window, GLFW_KEY_LEFT_SHIFT)==GLFW_PRESS ||
-               glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT)==GLFW_PRESS) mvU -= 1.f;
+               glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT)==GLFW_PRESS) mvU-=1.f;
 
             float move[3] = {
                 cam.forward[0]*mvF + cam.right[0]*mvR + cam.up[0]*mvU,
@@ -764,8 +749,8 @@ int main() {
                 cam.forward[2]*mvF + cam.right[2]*mvR + cam.up[2]*mvU
             };
             float mlen = std::sqrt(move[0]*move[0]+move[1]*move[1]+move[2]*move[2]);
-            if(mlen>0.f){ move[0]/=mlen; move[1]/=mlen; move[2]/=mlen; }
-            const float speed=3.0f;
+            if (mlen>0.f) { move[0]/=mlen; move[1]/=mlen; move[2]/=mlen; }
+            const float speed = 3.0f;
             cam.pos[0] += move[0]*speed*dt;
             cam.pos[1] += move[1]*speed*dt;
             cam.pos[2] += move[2]*speed*dt;
@@ -774,7 +759,11 @@ int main() {
         }
 
         vkDeviceWaitIdle(device);
-        // TODO: cleanup all Vulkan resources...
+
+        // cleanup physics resources
+        PhysicsModule::cleanup();
+
+        // TODO: cleanup all other Vulkan resources...
     }
     catch (std::exception &e) {
         std::cerr<<"Fatal: "<<e.what()<<"\n";
