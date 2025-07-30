@@ -2,12 +2,13 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
+// Matches the C++ Body struct (std430)
 struct Body {
-    vec3 pos;    float mass;
-    vec3 vel;    float pad0;
-    vec3 angVel; float pad1;
-    vec4 orient; float maxIter;
-    vec3 pad2;
+    vec4 pos;    // xyz position, w = mass
+    vec4 vel;    // xyz velocity
+    vec4 angVel; // xyz angular velocity
+    vec4 orient; // orientation quaternion
+    vec4 extra;  // extra.x = maxIter, yzw unused
 };
 
 layout(std430, binding = 0) buffer Bodies {
@@ -49,7 +50,7 @@ void main(){
         Body b = bodies[i];
         // transform ray into body‐local space
         mat3 rot = quatToMat(b.orient);
-        vec3 localOrigin = rot * (camPos - b.pos);
+        vec3 localOrigin = rot * (camPos - b.pos.xyz);
         vec3 localDir    = rot * rayDir;
 
         // basic fractal: raymarch Mandelbulb
@@ -73,7 +74,7 @@ void main(){
 
         // shade by escape time, mass, velocity magnitude
         float shade = iter==MAX_STEPS ? 0.0 : float(iter)/float(MAX_STEPS);
-        float vmag  = length(b.vel);
+        float vmag  = length(b.vel.xyz);
         vec3 col = mix(vec3(0.2,0.4,0.6), vec3(1.0,0.8,0.2), shade) * (1.0+vmag*0.1);
         color.rgb += col * (1.0/float(bodies.length()));
     }

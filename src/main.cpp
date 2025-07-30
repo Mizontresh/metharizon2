@@ -512,6 +512,9 @@ void drawFrame(uint32_t /*unused*/, Camera &cam) {
     std::memcpy(ptr, &cam, sizeof(cam));
     vkUnmapMemory(device, cameraMemory);
 
+    // update camera for physics module
+    PhysicsModule::step(cam);
+
     // record
     VkCommandBuffer cb = cmdBuffers[imageIndex];
     vkResetCommandBuffer(cb, 0);
@@ -672,11 +675,28 @@ int main() {
         createCommandPoolAndBuffers();
         createSyncObjects();
 
-        // initialize physics module
+        // initialize physics module and upload initial bodies
         PhysicsModule::init(
             device, physDevice, queue, queueFamily,
-            dsLayout, dsPool, storageExtent
+            storageExtent
         );
+        std::vector<Body> bodies = {
+            {
+                { -1.f, 0.f, 3.f, 1.f },
+                {  0.5f, 0.2f, 0.f, 0.f },
+                {  0.f, 0.f, 0.f, 0.f },
+                {  0.f, 0.f, 0.f, 1.f },
+                {  20.f,0.f,0.f,0.f }
+            },
+            {
+                { 1.f, 0.f, 3.f, 1.f },
+                { -0.5f,-0.2f,0.f,0.f },
+                { 0.f,0.f,0.f,0.f },
+                { 0.f,0.f,0.f,1.f },
+                { 20.f,0.f,0.f,0.f }
+            }
+        };
+        PhysicsModule::uploadBodies(bodies);
 
         // initial camera
         Camera cam{};

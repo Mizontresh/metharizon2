@@ -1,10 +1,17 @@
 #pragma once
 #include <vector>
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 #include "camera.hpp"
 
-// forward-declare Body so we don’t need scene.hpp here:
-struct Body { glm::vec4 pos, vel; };
+// Body layout shared with GLSL shaders (std430)
+struct Body {
+    glm::vec4 pos;    // xyz position, w = mass
+    glm::vec4 vel;    // xyz velocity
+    glm::vec4 angVel; // xyz angular velocity
+    glm::vec4 orient; // quaternion
+    glm::vec4 extra;  // extra.x = maxIter
+};
 
 class PhysicsModule {
 public:
@@ -13,13 +20,13 @@ public:
                      VkPhysicalDevice physDevice,
                      VkQueue queue,
                      uint32_t queueFamily,
-                     VkDescriptorSetLayout dsLayout,
-                     VkDescriptorPool dsPool,
                      VkExtent2D storageExtent);
 
-    // upload & run both pipelines immediately
-    static void step(const std::vector<Body>& bodies,
-                     const Camera& cam);
+    // update camera data each frame
+    static void step(const Camera& cam);
+
+    // upload initial body data
+    static void uploadBodies(const std::vector<Body>& bodies);
 
     // record into an existing VkCommandBuffer (for main’s ray‑march pass)
     static void recordDispatch(VkCommandBuffer cmd);
@@ -38,8 +45,6 @@ private:
     // pipelines / layouts / descriptor set:
     static VkPipeline            _physPipeline;
     static VkPipelineLayout      _physLayout;
-    static VkPipeline            _rayPipeline;
-    static VkPipelineLayout      _rayLayout;
     static VkDescriptorSet       _ds;
 
     // SSBOs for bodies + camera:

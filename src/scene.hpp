@@ -3,11 +3,7 @@
 #include "camera.hpp"
 #include "physics_module.hpp"
 
-// simple Body : pos.xyz + unused, vel.xyz + mass in w
-struct Body {
-    glm::vec4 pos;
-    glm::vec4 vel;
-};
+// Use the Body struct defined in physics_module.hpp
 
 class Scene {
 public:
