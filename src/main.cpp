@@ -356,21 +356,28 @@ void createCameraBuffer() {
 }
 
 void createDescriptorSet() {
-    // storage image binding
-    VkDescriptorSetLayoutBinding b0{};  
+    // bodies SSBO binding
+    VkDescriptorSetLayoutBinding b0{};
     b0.binding         = 0;
-    b0.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    b0.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     b0.descriptorCount = 1;
     b0.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
     // camera UBO binding
-    VkDescriptorSetLayoutBinding b1{};  
+    VkDescriptorSetLayoutBinding b1{};
     b1.binding         = 1;
     b1.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     b1.descriptorCount = 1;
     b1.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    std::array<VkDescriptorSetLayoutBinding,2> binds = { b0, b1 };
+    // storage image binding
+    VkDescriptorSetLayoutBinding b2{};
+    b2.binding         = 2;
+    b2.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    b2.descriptorCount = 1;
+    b2.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    std::array<VkDescriptorSetLayoutBinding,3> binds = { b0, b1, b2 };
     VkDescriptorSetLayoutCreateInfo dsli{};  
     dsli.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     dsli.bindingCount = (uint32_t)binds.size();
@@ -379,7 +386,8 @@ void createDescriptorSet() {
 
     VkDescriptorPoolSize ps0{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  1 };
     VkDescriptorPoolSize ps1{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 };
-    std::array<VkDescriptorPoolSize,2> pss = { ps0, ps1 };
+    VkDescriptorPoolSize ps2{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 };
+    std::array<VkDescriptorPoolSize,3> pss = { ps0, ps1, ps2 };
     VkDescriptorPoolCreateInfo dpci{};  
     dpci.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     dpci.maxSets       = 1;
@@ -397,15 +405,17 @@ void createDescriptorSet() {
     storageImageInfo.imageView   = storageView;
     storageImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-    VkWriteDescriptorSet w0{};  
+    VkDescriptorBufferInfo bodyInfo = PhysicsModule::bodyBufferInfo();
+
+    VkWriteDescriptorSet w0{};
     w0.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     w0.dstSet          = ds;
     w0.dstBinding      = 0;
     w0.descriptorCount = 1;
-    w0.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    w0.pImageInfo      = &storageImageInfo;
+    w0.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w0.pBufferInfo     = &bodyInfo;
 
-    VkWriteDescriptorSet w1{};  
+    VkWriteDescriptorSet w1{};
     w1.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     w1.dstSet          = ds;
     w1.dstBinding      = 1;
@@ -413,7 +423,15 @@ void createDescriptorSet() {
     w1.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     w1.pBufferInfo     = &cameraBufferInfo;
 
-    std::array<VkWriteDescriptorSet,2> writes = { w0, w1 };
+    VkWriteDescriptorSet w2{};
+    w2.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w2.dstSet          = ds;
+    w2.dstBinding      = 2;
+    w2.descriptorCount = 1;
+    w2.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    w2.pImageInfo      = &storageImageInfo;
+
+    std::array<VkWriteDescriptorSet,3> writes = { w0, w1, w2 };
     vkUpdateDescriptorSets(device,
                            (uint32_t)writes.size(), writes.data(),
                             0, nullptr);
@@ -670,10 +688,6 @@ int main() {
         createSwapchain(fbw, fbh);
         createStorageImage();
         createCameraBuffer();
-        createDescriptorSet();
-        createComputePipeline();
-        createCommandPoolAndBuffers();
-        createSyncObjects();
 
         // initialize physics module and upload initial bodies
         PhysicsModule::init(
@@ -697,6 +711,11 @@ int main() {
             }
         };
         PhysicsModule::uploadBodies(bodies);
+
+        createDescriptorSet();
+        createComputePipeline();
+        createCommandPoolAndBuffers();
+        createSyncObjects();
 
         // initial camera
         Camera cam{};

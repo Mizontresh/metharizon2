@@ -31,6 +31,9 @@ public:
     // record into an existing VkCommandBuffer (for main’s ray‑march pass)
     static void recordDispatch(VkCommandBuffer cmd);
 
+    // descriptor info for the bodies buffer so other modules can bind it
+    static VkDescriptorBufferInfo bodyBufferInfo();
+
     static void cleanup();
 
 private:
@@ -52,4 +55,5 @@ private:
     static VkDeviceMemory        _bodyMemory;
     static VkBuffer              _camBuffer;
     static VkDeviceMemory        _camMemory;
+    static VkDeviceSize          _bodySize;
 };

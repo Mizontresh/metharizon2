@@ -18,6 +18,7 @@ VkBuffer              PhysicsModule::_bodyBuffer   = VK_NULL_HANDLE;
 VkDeviceMemory        PhysicsModule::_bodyMemory   = VK_NULL_HANDLE;
 VkBuffer              PhysicsModule::_camBuffer    = VK_NULL_HANDLE;
 VkDeviceMemory        PhysicsModule::_camMemory    = VK_NULL_HANDLE;
+VkDeviceSize          PhysicsModule::_bodySize     = 0;
 
 static std::vector<char> readFile(const std::string &path) {
     std::ifstream f(path, std::ios::ate | std::ios::binary);
@@ -84,6 +85,7 @@ void PhysicsModule::init(VkDevice device,
 
     // create buffers
     VkDeviceSize bodySize = sizeof(Body) * 64; // room for 64 bodies
+    _bodySize = bodySize;
     VkBufferCreateInfo bci{};
     bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bci.size = bodySize;
@@ -169,6 +171,15 @@ void PhysicsModule::recordDispatch(VkCommandBuffer cmd)
                             _physLayout, 0, 1, &_ds, 0, nullptr);
     vkCmdDispatch(cmd,
         (uint32_t(_extent.width)+63)/64, 1, 1);
+}
+
+VkDescriptorBufferInfo PhysicsModule::bodyBufferInfo()
+{
+    VkDescriptorBufferInfo info{};
+    info.buffer = _bodyBuffer;
+    info.offset = 0;
+    info.range  = _bodySize;
+    return info;
 }
 
 void PhysicsModule::cleanup()
