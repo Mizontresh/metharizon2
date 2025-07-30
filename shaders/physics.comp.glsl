@@ -2,12 +2,13 @@
 
 layout(local_size_x = 64) in;
 
+// Matches the C++ Body struct (std430)
 struct Body {
-    vec3 pos;    float mass;
-    vec3 vel;    float pad0;
-    vec3 angVel; float pad1;
-    vec4 orient; float maxIter;
-    vec3 pad2;
+    vec4 pos;    // xyz position, w = mass
+    vec4 vel;    // xyz velocity
+    vec4 angVel; // xyz angular velocity
+    vec4 orient; // orientation quaternion
+    vec4 extra;  // extra.x = maxIter, yzw unused
 };
 
 layout(std430, binding = 0) buffer Bodies {
@@ -36,24 +37,24 @@ void main() {
     for (uint j = 0; j < N; ++j) {
         if (j == idx) continue;
         Body other = bodies[j];
-        vec3 d = other.pos - me.pos;
+        vec3 d = other.pos.xyz - me.pos.xyz;
         float r2 = dot(d,d) + 1e-3;
         float invR3 = inversesqrt(r2*r2*r2);
         // gravity
-        force += G * me.mass * other.mass * d * invR3;
+        force += G * me.pos.w * other.pos.w * d * invR3;
         // repulsion based on other's maxIter
-        float rep = other.maxIter > 0.0 ? 1.0 / other.maxIter : 0.0;
+        float rep = other.extra.x > 0.0 ? 1.0 / other.extra.x : 0.0;
         force -= rep * d * invR3;
     }
 
     // 2) linear integration
-    vec3 accel = force / me.mass;
-    me.vel += accel * dt;
-    me.pos += me.vel * dt;
+    vec3 accel = force / me.pos.w;
+    me.vel.xyz += accel * dt;
+    me.pos.xyz += me.vel.xyz * dt;
 
     // 3) angular integration (quaternion derivative)
     vec4 q = me.orient;
-    vec3 w = me.angVel;
+    vec3 w = me.angVel.xyz;
     vec4 qDot = 0.5 * vec4(
         -w.x*q.x - w.y*q.y - w.z*q.z,
          w.x*q.w + w.y*q.z - w.z*q.y,
@@ -61,11 +62,11 @@ void main() {
          w.x*q.y - w.y*q.x + w.z*q.w
     );
     q += qDot * dt;
-    bodies[idx].orient = normalize(q);
+    q = normalize(q);
 
     // 4) write back
-    bodies[idx].vel   = me.vel;
-    bodies[idx].pos   = me.pos;
-    bodies[idx].angVel= me.angVel;
-    bodies[idx].orient= me.orient;
+    bodies[idx].vel    = me.vel;
+    bodies[idx].pos    = me.pos;
+    bodies[idx].angVel = me.angVel;
+    bodies[idx].orient = q;
 }

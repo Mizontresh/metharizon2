@@ -14,21 +14,35 @@ Scene::Scene(const Camera& cam)
 {
     // two bodies, each mass=1, moving toward each other
     _bodies = {
-        { { -1.0f, 0.0f, 3.0f, 0.0f }, {  0.5f,  0.2f, 0.0f, 1.0f } },
-        { {  1.0f, 0.0f, 3.0f, 0.0f }, { -0.5f, -0.2f, 0.0f, 1.0f } }
+        {
+            { -1.0f, 0.0f, 3.0f, 1.0f }, // pos.xyz, mass
+            {  0.5f, 0.2f, 0.0f, 0.0f }, // velocity
+            {  0.0f, 0.0f, 0.0f, 0.0f }, // angVel
+            {  0.0f, 0.0f, 0.0f, 1.0f }, // orient (identity)
+            {  20.0f, 0.0f, 0.0f, 0.0f }  // extra.x = maxIter
+        },
+        {
+            {  1.0f, 0.0f, 3.0f, 1.0f },
+            { -0.5f,-0.2f, 0.0f, 0.0f },
+            {  0.0f, 0.0f, 0.0f, 0.0f },
+            {  0.0f, 0.0f, 0.0f, 1.0f },
+            {  20.0f, 0.0f, 0.0f, 0.0f }
+        }
     };
 
     // initialize the physics module once:
     PhysicsModule::init(
         device, physDevice, queue,
-        queueFamily, dsLayout, dsPool,
+        queueFamily,
         storageExtent
     );
+
+    PhysicsModule::uploadBodies(_bodies);
 }
 
 void Scene::updateAndDispatch(VkCommandBuffer cmd)
 {
-    // upload bodies & camera, run physics, then record into cmd for ray‑march
-    PhysicsModule::step(_bodies, _camera);
+    // update camera and record compute passes
+    PhysicsModule::step(_camera);
     PhysicsModule::recordDispatch(cmd);
 }
